@@ -1,0 +1,1 @@
+"""Consciousness system module"""

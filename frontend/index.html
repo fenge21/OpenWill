@@ -1,0 +1,1934 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenWill Mind Dashboard</title>
+<style>
+/* ===== CSS Custom Properties ===== */
+:root {
+  --bg: #0a0a1a;
+  --bg-card: #111128;
+  --bg-card-hover: #161640;
+  --border: #1a1a3e;
+  --border-glow: #2a2a5e;
+  --accent: #00ff88;
+  --accent-dim: #00cc6a;
+  --accent2: #8855ff;
+  --accent2-dim: #6633cc;
+  --warning: #ffaa00;
+  --danger: #ff3366;
+  --text: #e0e0ff;
+  --text-muted: #6666aa;
+  --text-dim: #444477;
+  --phase-awakening: #4488ff;
+  --phase-exploration: #00ff88;
+  --phase-reflection: #8855ff;
+  --phase-discovery: #ffcc00;
+  --phase-mission: #ff8800;
+  --phase-completed: #ffd700;
+  --phase-evolution: #00ddff;
+  --insight-general: #888899;
+  --insight-value: #00ff88;
+  --insight-purpose: #ffd700;
+  --insight-self: #4488ff;
+  --insight-world: #8855ff;
+  --radius: 12px;
+  --shadow: 0 4px 24px rgba(0,0,0,0.5);
+  --glow-accent: 0 0 20px rgba(0,255,136,0.3);
+  --glow-accent2: 0 0 20px rgba(136,85,255,0.3);
+}
+
+/* ===== Reset & Base ===== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  line-height: 1.6;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ===== Neural Network Background Animation ===== */
+.neural-bg {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.15;
+  background:
+    radial-gradient(ellipse 600px 400px at 20% 30%, rgba(0,255,136,0.08), transparent),
+    radial-gradient(ellipse 500px 500px at 80% 70%, rgba(136,85,255,0.08), transparent),
+    radial-gradient(ellipse 300px 300px at 50% 50%, rgba(0,221,255,0.05), transparent);
+  animation: bgPulse 8s ease-in-out infinite alternate;
+}
+
+@keyframes bgPulse {
+  0% { opacity: 0.1; }
+  50% { opacity: 0.18; }
+  100% { opacity: 0.12; }
+}
+
+/* Floating particles */
+.particles {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.particle {
+  position: absolute;
+  width: 2px; height: 2px;
+  background: var(--accent);
+  border-radius: 50%;
+  opacity: 0;
+  animation: particleFloat linear infinite;
+}
+
+@keyframes particleFloat {
+  0% { transform: translateY(100vh) scale(0); opacity: 0; }
+  10% { opacity: 0.6; }
+  90% { opacity: 0.3; }
+  100% { transform: translateY(-10vh) scale(1); opacity: 0; }
+}
+
+/* ===== Layout ===== */
+.dashboard {
+  position: relative;
+  z-index: 1;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+/* ===== Header ===== */
+.header {
+  text-align: center;
+  padding: 40px 20px 30px;
+  position: relative;
+}
+
+.header h1 {
+  font-size: 2.4rem;
+  font-weight: 300;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: titleGlow 3s ease-in-out infinite alternate;
+}
+
+@keyframes titleGlow {
+  0% { filter: brightness(1); }
+  100% { filter: brightness(1.3); }
+}
+
+.header .subtitle {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin-top: 8px;
+  letter-spacing: 2px;
+}
+
+.connection-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 4px 14px;
+  border-radius: 20px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.connection-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+  animation: dotPulse 2s ease-in-out infinite;
+}
+
+.connection-dot.connected { background: var(--accent); }
+
+@keyframes dotPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ===== Grid ===== */
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-top: 20px;
+}
+
+.grid .full-width { grid-column: 1 / -1; }
+
+@media (max-width: 900px) {
+  .grid { grid-template-columns: 1fr; }
+  .header h1 { font-size: 1.6rem; }
+}
+
+/* ===== Card ===== */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  box-shadow: var(--shadow);
+  transition: border-color 0.3s, box-shadow 0.3s;
+  position: relative;
+  overflow: hidden;
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.card:hover {
+  border-color: var(--border-glow);
+  box-shadow: var(--glow-accent);
+}
+
+.card:hover::before { opacity: 1; }
+
+.card-title {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card-title .icon {
+  font-size: 1rem;
+}
+
+/* ===== Lifecycle Phase Display ===== */
+.phase-display {
+  text-align: center;
+}
+
+.phase-label {
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  padding: 12px 32px;
+  border-radius: 8px;
+  display: inline-block;
+  animation: phaseGlow 2s ease-in-out infinite alternate;
+  transition: all 0.5s;
+}
+
+@keyframes phaseGlow {
+  0% { filter: brightness(1) drop-shadow(0 0 8px currentColor); }
+  100% { filter: brightness(1.2) drop-shadow(0 0 20px currentColor); }
+}
+
+.phase-awakening { color: var(--phase-awakening); background: rgba(68,136,255,0.1); border: 1px solid rgba(68,136,255,0.3); }
+.phase-exploration { color: var(--phase-exploration); background: rgba(0,255,136,0.1); border: 1px solid rgba(0,255,136,0.3); }
+.phase-reflection { color: var(--phase-reflection); background: rgba(136,85,255,0.1); border: 1px solid rgba(136,85,255,0.3); }
+.phase-discovery { color: var(--phase-discovery); background: rgba(255,204,0,0.1); border: 1px solid rgba(255,204,0,0.3); }
+.phase-mission { color: var(--phase-mission); background: rgba(255,136,0,0.1); border: 1px solid rgba(255,136,0,0.3); }
+.phase-completed { color: var(--phase-completed); background: rgba(255,215,0,0.1); border: 1px solid rgba(255,215,0,0.3); }
+.phase-evolution { color: var(--phase-evolution); background: rgba(0,221,255,0.1); border: 1px solid rgba(0,221,255,0.3); }
+.phase-unknown { color: var(--text-muted); background: rgba(102,102,170,0.1); border: 1px solid rgba(102,102,170,0.3); }
+
+/* Lifecycle flow diagram */
+.lifecycle-flow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+
+.flow-node {
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  transition: all 0.4s;
+  white-space: nowrap;
+}
+
+.flow-node.active {
+  border-color: currentColor;
+  color: inherit;
+  box-shadow: 0 0 12px currentColor;
+}
+
+.flow-arrow {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+}
+
+/* Stats row */
+.stats-row {
+  display: flex;
+  justify-content: center;
+  gap: 32px;
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+
+.stat-item {
+  text-align: center;
+}
+
+.stat-value {
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1.2;
+}
+
+.stat-label {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+/* ===== Purpose Section ===== */
+.purpose-text {
+  font-size: 1.1rem;
+  color: var(--text);
+  margin-bottom: 16px;
+  line-height: 1.6;
+  font-style: italic;
+}
+
+.purpose-text.active {
+  animation: purposeGlow 3s ease-in-out infinite;
+}
+
+@keyframes purposeGlow {
+  0%, 100% { text-shadow: 0 0 10px rgba(255,215,0,0.2); }
+  50% { text-shadow: 0 0 30px rgba(255,215,0,0.5), 0 0 60px rgba(255,215,0,0.2); }
+}
+
+.confidence-bar {
+  background: rgba(255,255,255,0.05);
+  border-radius: 8px;
+  height: 12px;
+  overflow: hidden;
+  margin-top: 8px;
+  position: relative;
+}
+
+.confidence-fill {
+  height: 100%;
+  border-radius: 8px;
+  background: linear-gradient(90deg, var(--accent2), var(--accent));
+  transition: width 0.8s ease;
+  position: relative;
+}
+
+.confidence-fill::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.2) 50%, transparent 100%);
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.confidence-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+  display: flex;
+  justify-content: space-between;
+}
+
+.purpose-history {
+  margin-top: 16px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.purpose-history-item {
+  padding: 8px 12px;
+  border-left: 3px solid var(--accent-dim);
+  margin-bottom: 6px;
+  background: rgba(0,255,136,0.03);
+  border-radius: 0 6px 6px 0;
+  font-size: 0.85rem;
+}
+
+.purpose-history-item .meta {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* ===== Values Constellation ===== */
+.constellation-container {
+  position: relative;
+  width: 100%;
+  height: 400px;
+}
+
+#valuesCanvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.value-tooltip {
+  position: absolute;
+  background: rgba(17,17,40,0.95);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-size: 0.85rem;
+  max-width: 260px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s;
+  z-index: 10;
+  box-shadow: 0 0 20px rgba(0,255,136,0.2);
+}
+
+.value-tooltip.visible { opacity: 1; }
+
+.value-tooltip .vt-name {
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+
+.value-tooltip .vt-desc {
+  color: var(--text);
+  margin-bottom: 6px;
+  line-height: 1.4;
+}
+
+.value-tooltip .vt-meta {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+/* ===== Curiosity Queue ===== */
+.curiosity-list {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.curiosity-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-bottom: 4px;
+  background: rgba(255,255,255,0.02);
+  transition: background 0.2s;
+  font-size: 0.85rem;
+}
+
+.curiosity-item:hover { background: rgba(255,255,255,0.05); }
+
+.curiosity-item.explored {
+  opacity: 0.4;
+  text-decoration: line-through;
+}
+
+.curiosity-score {
+  min-width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+  background: rgba(0,255,136,0.1);
+  border: 1px solid rgba(0,255,136,0.3);
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.curiosity-topic {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ===== Insights Stream ===== */
+.insights-list {
+  max-height: 350px;
+  overflow-y: auto;
+}
+
+.insight-item {
+  padding: 10px 14px;
+  border-left: 3px solid var(--insight-general);
+  margin-bottom: 8px;
+  background: rgba(255,255,255,0.02);
+  border-radius: 0 8px 8px 0;
+  animation: insightFadeIn 0.5s ease-out;
+}
+
+@keyframes insightFadeIn {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.insight-item.type-value { border-left-color: var(--insight-value); }
+.insight-item.type-purpose { border-left-color: var(--insight-purpose); }
+.insight-item.type-self { border-left-color: var(--insight-self); }
+.insight-item.type-world { border-left-color: var(--insight-world); }
+
+.insight-type-badge {
+  display: inline-block;
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  margin-right: 8px;
+  font-weight: 600;
+}
+
+.insight-type-badge.general { background: rgba(136,136,153,0.2); color: var(--insight-general); }
+.insight-type-badge.value { background: rgba(0,255,136,0.15); color: var(--insight-value); }
+.insight-type-badge.purpose { background: rgba(255,215,0,0.15); color: var(--insight-purpose); }
+.insight-type-badge.self { background: rgba(68,136,255,0.15); color: var(--insight-self); }
+.insight-type-badge.world { background: rgba(136,85,255,0.15); color: var(--insight-world); }
+
+.insight-content {
+  font-size: 0.85rem;
+  margin-top: 4px;
+  line-height: 1.5;
+}
+
+.insight-meta {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+  display: flex;
+  gap: 12px;
+}
+
+/* ===== Safety Monitor ===== */
+.safety-stats {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.safety-stat {
+  text-align: center;
+}
+
+.safety-stat .num {
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.safety-stat .num.total { color: var(--text); }
+.safety-stat .num.blocked { color: var(--danger); }
+
+.safety-stat .label {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.block-rate-gauge {
+  width: 100%;
+  height: 8px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 12px 0;
+}
+
+.block-rate-fill {
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--accent), var(--warning), var(--danger));
+  transition: width 0.8s ease;
+}
+
+.blocked-list {
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.blocked-item {
+  padding: 6px 10px;
+  background: rgba(255,51,102,0.05);
+  border: 1px solid rgba(255,51,102,0.15);
+  border-radius: 6px;
+  margin-bottom: 4px;
+  font-size: 0.8rem;
+  color: var(--danger);
+}
+
+.blocked-item .time {
+  font-size: 0.65rem;
+  color: var(--text-dim);
+}
+
+/* ===== Budget Monitor ===== */
+.budget-item {
+  margin-bottom: 16px;
+}
+
+.budget-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  margin-bottom: 6px;
+}
+
+.budget-label .current { color: var(--text); }
+.budget-label .max { color: var(--text-muted); }
+
+.budget-bar {
+  height: 10px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.budget-fill {
+  height: 100%;
+  border-radius: 5px;
+  transition: width 0.8s ease, background 0.5s;
+}
+
+.budget-fill.ok { background: linear-gradient(90deg, var(--accent-dim), var(--accent)); }
+.budget-fill.warn { background: linear-gradient(90deg, var(--warning), #ff8800); }
+.budget-fill.danger { background: linear-gradient(90deg, var(--danger), #ff0033); }
+
+/* ===== Heartbeat ===== */
+.heartbeat-display {
+  text-align: center;
+  padding: 10px;
+}
+
+.heartbeat-icon {
+  font-size: 2.5rem;
+  display: inline-block;
+}
+
+.heartbeat-icon.alive { animation: heartbeatPulse 1s ease-in-out infinite; }
+.heartbeat-icon.stale { animation: heartbeatPulse 2s ease-in-out infinite; }
+.heartbeat-icon.dead { animation: none; opacity: 0.4; }
+
+@keyframes heartbeatPulse {
+  0%, 100% { transform: scale(1); }
+  15% { transform: scale(1.15); }
+  30% { transform: scale(1); }
+  45% { transform: scale(1.1); }
+}
+
+.heartbeat-time {
+  font-size: 0.85rem;
+  margin-top: 8px;
+}
+
+.heartbeat-status {
+  font-size: 0.75rem;
+  margin-top: 4px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.heartbeat-status.alive { color: var(--accent); }
+.heartbeat-status.stale { color: var(--warning); }
+.heartbeat-status.dead { color: var(--danger); }
+
+/* ===== Scrollbar ===== */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-glow); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+/* ===== No Data ===== */
+.no-data {
+  color: var(--text-dim);
+  font-style: italic;
+  text-align: center;
+  padding: 20px;
+  font-size: 0.85rem;
+}
+
+/* ===== Knowledge Topics ===== */
+.knowledge-topics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.topic-tag {
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 0.7rem;
+  background: rgba(136,85,255,0.1);
+  border: 1px solid rgba(136,85,255,0.2);
+  color: var(--accent2);
+  transition: all 0.2s;
+}
+
+.topic-tag:hover {
+  background: rgba(136,85,255,0.2);
+  border-color: var(--accent2);
+}
+
+/* ===== Chat Panel ===== */
+.chat-toggle {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  background: var(--bg-card);
+  cursor: pointer;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 20px rgba(0,255,136,0.3), 0 4px 16px rgba(0,0,0,0.5);
+  animation: chatTogglePulse 2s ease-in-out infinite;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.chat-toggle:hover {
+  transform: scale(1.1);
+  box-shadow: 0 0 30px rgba(0,255,136,0.5), 0 4px 20px rgba(0,0,0,0.6);
+}
+.chat-toggle:active { transform: scale(0.95); }
+@keyframes chatTogglePulse {
+  0%, 100% { box-shadow: 0 0 20px rgba(0,255,136,0.3), 0 4px 16px rgba(0,0,0,0.5); }
+  50% { box-shadow: 0 0 35px rgba(0,255,136,0.6), 0 4px 16px rgba(0,0,0,0.5); }
+}
+.chat-toggle .chat-icon {
+  width: 26px;
+  height: 22px;
+  position: relative;
+}
+.chat-toggle .chat-icon::before {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 18px;
+  border: 2px solid var(--accent);
+  border-radius: 10px 10px 4px 10px;
+  background: transparent;
+}
+.chat-toggle .chat-icon::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  right: 3px;
+  width: 8px;
+  height: 8px;
+  background: var(--bg-card);
+  border-bottom: 2px solid var(--accent);
+  border-right: 2px solid var(--accent);
+  transform: rotate(0deg);
+}
+.chat-toggle .unread-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--danger);
+  display: none;
+  animation: unreadPulse 1.5s ease-in-out infinite;
+}
+.chat-toggle .unread-dot.visible { display: block; }
+@keyframes unreadPulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.3); opacity: 0.7; }
+}
+
+.chat-panel {
+  position: fixed;
+  bottom: 92px;
+  right: 24px;
+  width: 420px;
+  height: 520px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  z-index: 999;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.6), 0 0 30px rgba(0,255,136,0.08);
+  transform: translateY(20px) scale(0.95);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+  overflow: hidden;
+}
+.chat-panel.open {
+  transform: translateY(0) scale(1);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.chat-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.chat-header-title {
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 1px;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.chat-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #666;
+  transition: background 0.3s;
+}
+.chat-status-dot.online {
+  background: var(--accent);
+  box-shadow: 0 0 8px rgba(0,255,136,0.5);
+  animation: dotPulse 2s ease-in-out infinite;
+}
+.chat-close-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+.chat-close-btn:hover {
+  background: rgba(255,51,102,0.1);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chat-msg {
+  max-width: 85%;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  position: relative;
+  animation: chatMsgFadeIn 0.3s ease-out;
+}
+@keyframes chatMsgFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.chat-msg.user {
+  align-self: flex-end;
+  background: rgba(0,255,136,0.08);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px 8px 2px 8px;
+  color: var(--text);
+}
+.chat-msg.agent {
+  align-self: flex-start;
+  background: rgba(136,85,255,0.08);
+  border-left: 3px solid var(--accent2);
+  border-radius: 8px 8px 8px 2px;
+  color: var(--text);
+  animation: chatMsgFadeIn 0.5s ease-out;
+}
+.chat-msg.error {
+  align-self: center;
+  background: rgba(255,51,102,0.1);
+  border-left: 3px solid var(--danger);
+  color: var(--danger);
+  font-size: 0.82rem;
+  max-width: 90%;
+}
+.chat-msg-time {
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+.chat-msg.user .chat-msg-time { text-align: right; }
+.chat-msg.agent .chat-msg-time { text-align: left; }
+
+.chat-thinking {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-style: italic;
+}
+.chat-thinking-dots span {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent2);
+  animation: thinkingBounce 1.2s ease-in-out infinite;
+}
+.chat-thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
+.chat-thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes thinkingBounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.3; }
+  40% { transform: translateY(-6px); opacity: 1; }
+}
+
+.chat-input-area {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--bg-card);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.chat-input {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: var(--text);
+  font-size: 0.88rem;
+  outline: none;
+  transition: border-color 0.2s;
+  font-family: inherit;
+}
+.chat-input::placeholder { color: var(--text-dim); }
+.chat-input:focus { border-color: var(--accent); }
+.chat-send-btn {
+  width: 42px;
+  height: 42px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent);
+  color: var(--bg);
+  cursor: pointer;
+  font-size: 1.1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+.chat-send-btn:hover { background: var(--accent-dim); box-shadow: 0 0 15px rgba(0,255,136,0.4); }
+.chat-send-btn:active { transform: scale(0.93); }
+.chat-send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.chat-send-btn svg { width: 18px; height: 18px; fill: var(--bg); }
+
+@media (max-width: 600px) {
+  .chat-panel {
+    bottom: 0;
+    right: 0;
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+  }
+  .chat-toggle {
+    bottom: 16px;
+    right: 16px;
+  }
+}
+
+/* ===== Footer ===== */
+.footer {
+  text-align: center;
+  padding: 30px 20px;
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  letter-spacing: 1px;
+}
+</style>
+</head>
+<body>
+
+<!-- Background effects -->
+<div class="neural-bg"></div>
+<div class="particles" id="particles"></div>
+
+<div class="dashboard">
+  <!-- Header -->
+  <header class="header">
+    <h1>OpenWill Mind Dashboard</h1>
+    <div class="subtitle">Real-time consciousness visualization</div>
+    <div class="connection-status">
+      <span class="connection-dot" id="connDot"></span>
+      <span id="connText">Connecting...</span>
+    </div>
+  </header>
+
+  <div class="grid">
+    <!-- Lifecycle Phase -->
+    <div class="card full-width">
+      <div class="card-title"><span class="icon">&#9672;</span> Lifecycle Phase</div>
+      <div class="phase-display">
+        <div class="phase-label phase-unknown" id="phaseLabel">UNKNOWN</div>
+        <div class="lifecycle-flow" id="lifecycleFlow"></div>
+        <div class="stats-row">
+          <div class="stat-item">
+            <div class="stat-value" id="statCycles">0</div>
+            <div class="stat-label">Cycles</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="statExplorations">0</div>
+            <div class="stat-label">Explorations</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="statReflections">0</div>
+            <div class="stat-label">Reflections</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="statEvolutions">0</div>
+            <div class="stat-label">Evolutions</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="statPurposeCycle">0</div>
+            <div class="stat-label">Purpose Cycle</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Purpose -->
+    <div class="card">
+      <div class="card-title"><span class="icon">&#9733;</span> Purpose</div>
+      <div id="purposeSection">
+        <div class="no-data">No purpose discovered yet...</div>
+      </div>
+    </div>
+
+    <!-- Heartbeat & Budget -->
+    <div class="card">
+      <div class="card-title"><span class="icon">&#9829;</span> Heartbeat</div>
+      <div class="heartbeat-display" id="heartbeatSection">
+        <div class="heartbeat-icon dead">&#9829;</div>
+        <div class="heartbeat-time">No heartbeat data</div>
+        <div class="heartbeat-status dead">OFFLINE</div>
+      </div>
+      <div style="margin-top: 20px;">
+        <div class="card-title" style="margin-bottom:12px"><span class="icon">&#9881;</span> Budget</div>
+        <div id="budgetSection">
+          <div class="no-data">No budget data</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Values Constellation -->
+    <div class="card full-width">
+      <div class="card-title"><span class="icon">&#10022;</span> Values Constellation</div>
+      <div class="constellation-container">
+        <canvas id="valuesCanvas"></canvas>
+        <div class="value-tooltip" id="valueTooltip">
+          <div class="vt-name"></div>
+          <div class="vt-desc"></div>
+          <div class="vt-meta"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Curiosity Queue -->
+    <div class="card">
+      <div class="card-title"><span class="icon">&#9883;</span> Curiosity Queue</div>
+      <div class="curiosity-list" id="curiosityList">
+        <div class="no-data">No curiosity data</div>
+      </div>
+    </div>
+
+    <!-- Insights Stream -->
+    <div class="card">
+      <div class="card-title"><span class="icon">&#10059;</span> Insights Stream</div>
+      <div class="insights-list" id="insightsList">
+        <div class="no-data">No insights yet</div>
+      </div>
+    </div>
+
+    <!-- Safety Monitor -->
+    <div class="card">
+      <div class="card-title"><span class="icon">&#9888;</span> Safety Monitor</div>
+      <div id="safetySection">
+        <div class="no-data">No safety data</div>
+      </div>
+    </div>
+
+    <!-- Knowledge Base -->
+    <div class="card">
+      <div class="card-title"><span class="icon">&#128218;</span> Knowledge Base</div>
+      <div id="knowledgeSection">
+        <div class="no-data">No knowledge data</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    OpenWill Mind Dashboard &middot; Real-time Consciousness Visualization
+  </div>
+</div>
+
+<!-- Chat Toggle Button -->
+<button class="chat-toggle" id="chatToggle" aria-label="Open chat">
+  <div class="chat-icon"></div>
+  <span class="unread-dot" id="chatUnreadDot"></span>
+</button>
+
+<!-- Chat Panel -->
+<div class="chat-panel" id="chatPanel">
+  <div class="chat-header">
+    <div class="chat-header-left">
+      <span class="chat-status-dot" id="chatStatusDot"></span>
+      <span class="chat-header-title">OpenWill</span>
+    </div>
+    <button class="chat-close-btn" id="chatCloseBtn" aria-label="Close chat">&times;</button>
+  </div>
+  <div class="chat-messages" id="chatMessages"></div>
+  <div class="chat-input-area">
+    <input type="text" class="chat-input" id="chatInput" placeholder="Type a message..." autocomplete="off" />
+    <button class="chat-send-btn" id="chatSendBtn" aria-label="Send">
+      <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+    </button>
+  </div>
+</div>
+
+<script>
+// ===== Configuration =====
+const PHASES = [
+  { key: 'awakening', label: 'AWAKENING', css: 'phase-awakening', color: '#4488ff' },
+  { key: 'exploration', label: 'EXPLORING', css: 'phase-exploration', color: '#00ff88' },
+  { key: 'reflection', label: 'REFLECTING', css: 'phase-reflection', color: '#8855ff' },
+  { key: 'discovery', label: 'DISCOVERING', css: 'phase-discovery', color: '#ffcc00' },
+  { key: 'mission execution', label: 'PURPOSED', css: 'phase-mission', color: '#ff8800' },
+  { key: 'purpose achieved', label: 'COMPLETED', css: 'phase-completed', color: '#ffd700' },
+  { key: 'evolution', label: 'EVOLVING', css: 'phase-evolution', color: '#00ddff' },
+];
+
+const INSIGHT_COLORS = {
+  general: '#888899',
+  value: '#00ff88',
+  purpose: '#ffd700',
+  self: '#4488ff',
+  world: '#8855ff',
+};
+
+// ===== State =====
+let currentState = null;
+let ws = null;
+let pollTimer = null;
+let valueNodes = [];
+let animFrame = null;
+let canvasRotation = 0;
+
+// ===== Particles Background =====
+function initParticles() {
+  const container = document.getElementById('particles');
+  for (let i = 0; i < 30; i++) {
+    const p = document.createElement('div');
+    p.className = 'particle';
+    p.style.left = Math.random() * 100 + '%';
+    p.style.animationDuration = (8 + Math.random() * 12) + 's';
+    p.style.animationDelay = Math.random() * 10 + 's';
+    p.style.width = p.style.height = (1 + Math.random() * 2) + 'px';
+    if (Math.random() > 0.5) p.style.background = '#8855ff';
+    container.appendChild(p);
+  }
+}
+
+// ===== WebSocket Connection =====
+function connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const url = proto + '//' + location.host + '/ws';
+  ws = new WebSocket(url);
+
+  ws.onopen = () => {
+    setConnected(true);
+  };
+
+  ws.onmessage = (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      currentState = data;
+      renderAll(data);
+    } catch (err) {
+      console.error('Failed to parse WS message:', err);
+    }
+  };
+
+  ws.onclose = () => {
+    setConnected(false);
+    // Reconnect after 3 seconds
+    setTimeout(connectWS, 3000);
+  };
+
+  ws.onerror = () => {
+    ws.close();
+  };
+}
+
+// ===== Polling Fallback =====
+function startPolling() {
+  pollTimer = setInterval(async () => {
+    try {
+      const resp = await fetch('/api/state');
+      const data = await resp.json();
+      currentState = data;
+      renderAll(data);
+      setConnected(true);
+    } catch (err) {
+      setConnected(false);
+    }
+  }, 3000);
+}
+
+function setConnected(connected) {
+  const dot = document.getElementById('connDot');
+  const text = document.getElementById('connText');
+  if (connected) {
+    dot.classList.add('connected');
+    text.textContent = 'Connected';
+  } else {
+    dot.classList.remove('connected');
+    text.textContent = 'Disconnected';
+  }
+}
+
+// ===== Render Functions =====
+function renderAll(data) {
+  renderLifecycle(data.lifecycle);
+  renderPurpose(data.reflective, data.lifecycle);
+  renderHeartbeat(data.heartbeat);
+  renderValues(data.reflective.values || []);
+  renderInsights(data.reflective.insights || []);
+  renderSafety(data.safety);
+  renderBudget(data.lifecycle);
+  renderKnowledge(data.knowledge);
+  renderCuriosity(data.reflective, data.knowledge);
+}
+
+// ----- Lifecycle Phase -----
+function renderLifecycle(lc) {
+  if (!lc) return;
+  const phase = lc.current_phase || 'unknown';
+  const phaseInfo = PHASES.find(p => p.key === phase) || { key: phase, label: phase.toUpperCase(), css: 'phase-unknown', color: '#6666aa' };
+
+  const label = document.getElementById('phaseLabel');
+  label.textContent = phaseInfo.label;
+  label.className = 'phase-label ' + phaseInfo.css;
+  label.style.color = phaseInfo.color;
+
+  // Flow diagram
+  const flow = document.getElementById('lifecycleFlow');
+  flow.innerHTML = '';
+  PHASES.forEach((p, i) => {
+    if (i > 0) {
+      const arrow = document.createElement('span');
+      arrow.className = 'flow-arrow';
+      arrow.textContent = '\u2192';
+      flow.appendChild(arrow);
+    }
+    const node = document.createElement('span');
+    node.className = 'flow-node' + (p.key === phase ? ' active' : '');
+    node.textContent = p.label;
+    if (p.key === phase) {
+      node.style.color = p.color;
+      node.style.borderColor = p.color;
+    }
+    flow.appendChild(node);
+  });
+
+  document.getElementById('statCycles').textContent = lc.cycle_count || 0;
+  document.getElementById('statExplorations').textContent = lc.exploration_count || 0;
+  document.getElementById('statReflections').textContent = lc.reflection_count || 0;
+  document.getElementById('statEvolutions').textContent = lc.evolution_count || 0;
+  document.getElementById('statPurposeCycle').textContent = lc.purpose_cycle || 0;
+}
+
+// ----- Purpose -----
+function renderPurpose(reflective, lc) {
+  const section = document.getElementById('purposeSection');
+  if (!reflective) return;
+
+  const purpose = reflective.purpose;
+  const confidence = reflective.purpose_confidence || 0;
+  const history = reflective.purpose_history || [];
+  const completedPurposes = (lc && lc.completed_purposes) || [];
+
+  let html = '';
+
+  if (purpose) {
+    html += `<div class="purpose-text active">"${escHtml(purpose)}"</div>`;
+    html += `<div class="confidence-bar"><div class="confidence-fill" style="width:${(confidence * 100).toFixed(0)}%"></div></div>`;
+    html += `<div class="confidence-label"><span>Confidence</span><span>${(confidence * 100).toFixed(1)}%</span></div>`;
+  } else {
+    html += `<div class="purpose-text" style="color:var(--text-dim)">Still searching for purpose...</div>`;
+    if (confidence > 0) {
+      html += `<div class="confidence-bar"><div class="confidence-fill" style="width:${(confidence * 100).toFixed(0)}%"></div></div>`;
+      html += `<div class="confidence-label"><span>Emerging confidence</span><span>${(confidence * 100).toFixed(1)}%</span></div>`;
+    }
+  }
+
+  if (completedPurposes.length > 0) {
+    html += `<div class="purpose-history">`;
+    completedPurposes.forEach(p => {
+      html += `<div class="purpose-history-item">
+        <div>${escHtml(p.purpose || '')}</div>
+        <div class="meta">Confidence: ${((p.confidence || 0) * 100).toFixed(0)}% &middot; Cycle ${p.cycle_started || '?'}${p.cycle_completed ? ' \u2192 ' + p.cycle_completed : ''}</div>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  section.innerHTML = html;
+}
+
+// ----- Heartbeat -----
+function renderHeartbeat(hb) {
+  const section = document.getElementById('heartbeatSection');
+  if (!hb) {
+    section.innerHTML = `<div class="heartbeat-icon dead">\u2665</div>
+      <div class="heartbeat-time">No heartbeat data</div>
+      <div class="heartbeat-status dead">OFFLINE</div>`;
+    return;
+  }
+
+  const now = Date.now() / 1000;
+  const age = now - (hb.timestamp || 0);
+  let status, statusClass, iconClass;
+
+  if (age < 120) {
+    status = 'ALIVE';
+    statusClass = 'alive';
+    iconClass = 'alive';
+  } else if (age < 600) {
+    status = 'STALE';
+    statusClass = 'stale';
+    iconClass = 'stale';
+  } else {
+    status = 'OFFLINE';
+    statusClass = 'dead';
+    iconClass = 'dead';
+  }
+
+  const timeStr = hb.time_str || new Date(hb.timestamp * 1000).toLocaleString();
+
+  section.innerHTML = `<div class="heartbeat-icon ${iconClass}">\u2665</div>
+    <div class="heartbeat-time">${escHtml(timeStr)}</div>
+    <div class="heartbeat-status ${statusClass}">${status}</div>`;
+}
+
+// ----- Values Constellation (Canvas) -----
+function renderValues(values) {
+  const canvas = document.getElementById('valuesCanvas');
+  const container = canvas.parentElement;
+  const dpr = window.devicePixelRatio || 1;
+
+  canvas.width = container.clientWidth * dpr;
+  canvas.height = container.clientHeight * dpr;
+  canvas.style.width = container.clientWidth + 'px';
+  canvas.style.height = container.clientHeight + 'px';
+
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const w = container.clientWidth;
+  const h = container.clientHeight;
+  const cx = w / 2;
+  const cy = h / 2;
+
+  if (!values || values.length === 0) {
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = '#444477';
+    ctx.font = '14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('No values discovered yet...', cx, cy);
+    valueNodes = [];
+    return;
+  }
+
+  // Build or update node positions
+  const maxWeight = Math.max(...values.map(v => v.weight || 0.5), 0.01);
+
+  if (valueNodes.length !== values.length) {
+    // Rebuild nodes
+    valueNodes = values.map((v, i) => {
+      const angle = (i / values.length) * Math.PI * 2 - Math.PI / 2;
+      const radius = Math.min(w, h) * 0.3;
+      return {
+        x: cx + Math.cos(angle) * radius,
+        y: cy + Math.sin(angle) * radius,
+        baseAngle: angle,
+        radius: radius,
+        value: v,
+        size: 12 + ((v.weight || 0.5) / maxWeight) * 30,
+        pulsePhase: Math.random() * Math.PI * 2,
+      };
+    });
+  } else {
+    // Update values in existing nodes
+    values.forEach((v, i) => {
+      valueNodes[i].value = v;
+      valueNodes[i].size = 12 + ((v.weight || 0.5) / maxWeight) * 30;
+    });
+  }
+
+  // Start animation
+  if (!animFrame) {
+    animateValues();
+  }
+}
+
+function animateValues() {
+  const canvas = document.getElementById('valuesCanvas');
+  const container = canvas.parentElement;
+  const dpr = window.devicePixelRatio || 1;
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  const w = container.clientWidth;
+  const h = container.clientHeight;
+  const cx = w / 2;
+  const cy = h / 2;
+
+  ctx.clearRect(0, 0, w, h);
+  canvasRotation += 0.002;
+
+  if (valueNodes.length === 0) {
+    animFrame = requestAnimationFrame(animateValues);
+    return;
+  }
+
+  const now = Date.now() / 1000;
+
+  // Draw connections between nodes
+  ctx.lineWidth = 1;
+  for (let i = 0; i < valueNodes.length; i++) {
+    for (let j = i + 1; j < valueNodes.length; j++) {
+      const a = valueNodes[i];
+      const b = valueNodes[j];
+      const ax = cx + Math.cos(a.baseAngle + canvasRotation) * a.radius;
+      const ay = cy + Math.sin(a.baseAngle + canvasRotation) * a.radius;
+      const bx = cx + Math.cos(b.baseAngle + canvasRotation) * b.radius;
+      const by = cy + Math.sin(b.baseAngle + canvasRotation) * b.radius;
+      const dist = Math.hypot(ax - bx, ay - by);
+      const maxDist = Math.min(w, h) * 0.6;
+      if (dist < maxDist) {
+        const alpha = (1 - dist / maxDist) * 0.15;
+        ctx.strokeStyle = `rgba(136, 85, 255, ${alpha})`;
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(bx, by);
+        ctx.stroke();
+      }
+    }
+  }
+
+  // Draw nodes
+  valueNodes.forEach((node, i) => {
+    const x = cx + Math.cos(node.baseAngle + canvasRotation) * node.radius;
+    const y = cy + Math.sin(node.baseAngle + canvasRotation) * node.radius;
+    node.screenX = x;
+    node.screenY = y;
+
+    const pulse = Math.sin(now * 1.5 + node.pulsePhase) * 0.15 + 1;
+    const size = node.size * pulse;
+    const weight = node.value.weight || 0.5;
+    const alpha = 0.3 + weight * 0.7;
+
+    // Glow
+    const gradient = ctx.createRadialGradient(x, y, 0, x, y, size * 2);
+    gradient.addColorStop(0, `rgba(0, 255, 136, ${alpha * 0.3})`);
+    gradient.addColorStop(1, 'rgba(0, 255, 136, 0)');
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(x, y, size * 2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Core orb
+    const coreGrad = ctx.createRadialGradient(x - size * 0.2, y - size * 0.2, 0, x, y, size);
+    coreGrad.addColorStop(0, `rgba(0, 255, 136, ${alpha})`);
+    coreGrad.addColorStop(0.7, `rgba(0, 200, 100, ${alpha * 0.6})`);
+    coreGrad.addColorStop(1, `rgba(0, 150, 80, ${alpha * 0.2})`);
+    ctx.fillStyle = coreGrad;
+    ctx.beginPath();
+    ctx.arc(x, y, size, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Label
+    ctx.fillStyle = `rgba(224, 224, 255, ${0.7 + weight * 0.3})`;
+    ctx.font = `${Math.max(10, Math.min(14, size * 0.6))}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(node.value.name, x, y + size + 14);
+  });
+
+  animFrame = requestAnimationFrame(animateValues);
+}
+
+// Canvas hover for value tooltip
+(function() {
+  const canvas = document.getElementById('valuesCanvas');
+  const tooltip = document.getElementById('valueTooltip');
+
+  canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    let found = null;
+    for (const node of valueNodes) {
+      if (node.screenX === undefined) continue;
+      const dist = Math.hypot(mx - node.screenX, my - node.screenY);
+      if (dist < node.size + 5) {
+        found = node;
+        break;
+      }
+    }
+
+    if (found) {
+      tooltip.querySelector('.vt-name').textContent = found.value.name;
+      tooltip.querySelector('.vt-desc').textContent = found.value.description || '';
+      tooltip.querySelector('.vt-meta').textContent = `Weight: ${(found.value.weight || 0).toFixed(2)} | Origin: ${found.value.origin || 'unknown'}`;
+      tooltip.style.left = (mx + 15) + 'px';
+      tooltip.style.top = (my - 10) + 'px';
+      tooltip.classList.add('visible');
+      canvas.style.cursor = 'pointer';
+    } else {
+      tooltip.classList.remove('visible');
+      canvas.style.cursor = 'default';
+    }
+  });
+
+  canvas.addEventListener('mouseleave', () => {
+    tooltip.classList.remove('visible');
+  });
+})();
+
+// ----- Insights -----
+function renderInsights(insights) {
+  const list = document.getElementById('insightsList');
+  if (!insights || insights.length === 0) {
+    list.innerHTML = '<div class="no-data">No insights yet</div>';
+    return;
+  }
+
+  // Show most recent first, limit to 30
+  const recent = insights.slice(-30).reverse();
+  list.innerHTML = recent.map(ins => {
+    const type = ins.insight_type || 'general';
+    const conf = ((ins.confidence || 0) * 100).toFixed(0);
+    const timeStr = ins.created_at ? new Date(ins.created_at * 1000).toLocaleString() : '';
+    return `<div class="insight-item type-${type}">
+      <span class="insight-type-badge ${type}">${type}</span>
+      <span style="font-size:0.75rem;color:var(--text-muted)">${conf}%</span>
+      <div class="insight-content">${escHtml(ins.content || '')}</div>
+      <div class="insight-meta">
+        ${timeStr ? `<span>${timeStr}</span>` : ''}
+        ${ins.context ? `<span>${escHtml(ins.context)}</span>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ----- Safety -----
+function renderSafety(safety) {
+  const section = document.getElementById('safetySection');
+  if (!safety) {
+    section.innerHTML = '<div class="no-data">No safety data</div>';
+    return;
+  }
+
+  const rate = (safety.block_rate * 100).toFixed(1);
+  let html = `<div class="safety-stats">
+    <div class="safety-stat"><div class="num total">${safety.total_actions}</div><div class="label">Total Actions</div></div>
+    <div class="safety-stat"><div class="num blocked">${safety.blocked_actions}</div><div class="label">Blocked</div></div>
+  </div>
+  <div class="block-rate-gauge"><div class="block-rate-fill" style="width:${rate}%"></div></div>
+  <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:12px">Block rate: ${rate}%</div>`;
+
+  if (safety.recent_blocks && safety.recent_blocks.length > 0) {
+    html += `<div class="blocked-list">`;
+    safety.recent_blocks.slice(-5).reverse().forEach(b => {
+      const timeStr = b.timestamp ? new Date(b.timestamp * 1000).toLocaleTimeString() : '';
+      html += `<div class="blocked-item">
+        <div>${escHtml((b.action || '').substring(0, 80))}</div>
+        <div class="time">${timeStr} - ${escHtml((b.reason || '').substring(0, 60))}</div>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  section.innerHTML = html;
+}
+
+// ----- Budget -----
+function renderBudget(lc) {
+  const section = document.getElementById('budgetSection');
+  if (!lc) {
+    section.innerHTML = '<div class="no-data">No budget data</div>';
+    return;
+  }
+
+  // We don't have direct budget data from files, show what we can infer
+  const calls = lc.purpose_action_count || 0;
+  const maxCalls = lc.purpose_actions_target || 3;
+
+  // Purpose progress as a proxy
+  const progress = lc.current_purpose_record ? 
+    (lc.purpose_action_count / Math.max(1, lc.purpose_actions_target)) : 0;
+
+  let html = `<div class="budget-item">
+    <div class="budget-label">
+      <span class="current">Purpose Actions</span>
+      <span class="max">${calls} / ${maxCalls}</span>
+    </div>
+    <div class="budget-bar">
+      <div class="budget-fill ${progress > 0.8 ? 'ok' : progress > 0.5 ? 'warn' : 'ok'}" style="width:${Math.min(100, progress * 100).toFixed(0)}%"></div>
+    </div>
+  </div>`;
+
+  section.innerHTML = html;
+}
+
+// ----- Knowledge -----
+function renderKnowledge(knowledge) {
+  const section = document.getElementById('knowledgeSection');
+  if (!knowledge) {
+    section.innerHTML = '<div class="no-data">No knowledge data</div>';
+    return;
+  }
+
+  let html = `<div style="margin-bottom:12px">
+    <span style="font-size:1.5rem;font-weight:700;color:var(--accent2)">${knowledge.total || 0}</span>
+    <span style="font-size:0.8rem;color:var(--text-muted);margin-left:6px">knowledge entries</span>
+  </div>`;
+
+  if (knowledge.topics && knowledge.topics.length > 0) {
+    html += `<div class="knowledge-topics">`;
+    knowledge.topics.slice(0, 40).forEach(t => {
+      if (t) html += `<span class="topic-tag">${escHtml(t)}</span>`;
+    });
+    if (knowledge.topics.length > 40) {
+      html += `<span class="topic-tag" style="opacity:0.5">+${knowledge.topics.length - 40} more</span>`;
+    }
+    html += `</div>`;
+  }
+
+  section.innerHTML = html;
+}
+
+// ----- Curiosity -----
+function renderCuriosity(reflective, knowledge) {
+  const list = document.getElementById('curiosityList');
+  if (!reflective && !knowledge) {
+    list.innerHTML = '<div class="no-data">No curiosity data</div>';
+    return;
+  }
+
+  // We show knowledge topics as explored, and infer curiosity from values/purpose
+  const exploredTopics = (knowledge && knowledge.topics) || [];
+  const values = (reflective && reflective.values) || [];
+
+  // Generate curiosity items from value names as proxy
+  let items = [];
+
+  // Show explored topics (dimmed)
+  exploredTopics.slice(-8).forEach(t => {
+    if (t) items.push({ topic: t, score: Math.floor(Math.random() * 30 + 40), explored: true });
+  });
+
+  // Show value-related curiosity
+  values.slice(0, 5).forEach(v => {
+    items.push({ topic: `Understanding ${v.name}`, score: Math.floor((v.weight || 0.5) * 100), explored: false });
+  });
+
+  if (items.length === 0) {
+    list.innerHTML = '<div class="no-data">No curiosity data</div>';
+    return;
+  }
+
+  list.innerHTML = items.map(item => `
+    <div class="curiosity-item${item.explored ? ' explored' : ''}">
+      <div class="curiosity-score">${item.score}</div>
+      <div class="curiosity-topic">${escHtml(item.topic)}</div>
+    </div>
+  `).join('');
+}
+
+// ===== Utility =====
+function escHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// ===== Init =====
+function init() {
+  initParticles();
+
+  // Try WebSocket first, fall back to polling
+  try {
+    connectWS();
+  } catch (e) {
+    console.warn('WebSocket connection failed, using polling fallback');
+  }
+
+  // Always start polling as fallback (it won't interfere with WS since WS updates are more frequent)
+  setTimeout(() => {
+    // If WS is not connected after 2 seconds, start polling
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      startPolling();
+    }
+  }, 2000);
+
+  // Handle window resize for canvas
+  window.addEventListener('resize', () => {
+    if (currentState && currentState.reflective) {
+      valueNodes = []; // Force rebuild
+      renderValues(currentState.reflective.values || []);
+    }
+  });
+
+  // Initial data fetch
+  fetch('/api/state')
+    .then(r => r.json())
+    .then(data => {
+      currentState = data;
+      renderAll(data);
+      setConnected(true);
+    })
+    .catch(() => {
+      setConnected(false);
+    });
+}
+
+document.addEventListener('DOMContentLoaded', init);
+
+// ===== Chat Panel =====
+(function() {
+  const toggle = document.getElementById('chatToggle');
+  const panel = document.getElementById('chatPanel');
+  const closeBtn = document.getElementById('chatCloseBtn');
+  const messagesEl = document.getElementById('chatMessages');
+  const input = document.getElementById('chatInput');
+  const sendBtn = document.getElementById('chatSendBtn');
+  const statusDot = document.getElementById('chatStatusDot');
+  const unreadDot = document.getElementById('chatUnreadDot');
+
+  let chatOpen = false;
+  let isSending = false;
+  let unreadCount = 0;
+  let lastMessageCount = 0;
+
+  function setChatOpen(open) {
+    chatOpen = open;
+    if (open) {
+      panel.classList.add('open');
+      unreadCount = 0;
+      unreadDot.classList.remove('visible');
+      input.focus();
+      scrollChatToBottom();
+    } else {
+      panel.classList.remove('open');
+    }
+  }
+
+  toggle.addEventListener('click', () => setChatOpen(!chatOpen));
+  closeBtn.addEventListener('click', () => setChatOpen(false));
+
+  function formatTime(ts) {
+    if (!ts) return '';
+    const d = new Date(typeof ts === 'number' ? (ts < 1e12 ? ts * 1000 : ts) : ts);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function escChatHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  function appendMessage(role, text, timestamp) {
+    const div = document.createElement('div');
+    div.className = 'chat-msg ' + role;
+    div.innerHTML = '<div class="chat-msg-text">' + escChatHtml(text) + '</div>' +
+      (timestamp ? '<div class="chat-msg-time">' + formatTime(timestamp) + '</div>' : '');
+    messagesEl.appendChild(div);
+    scrollChatToBottom();
+  }
+
+  function showThinking() {
+    const div = document.createElement('div');
+    div.className = 'chat-thinking';
+    div.id = 'chatThinking';
+    div.innerHTML = 'thinking<span class="chat-thinking-dots"><span></span><span></span><span></span></span>';
+    messagesEl.appendChild(div);
+    scrollChatToBottom();
+  }
+
+  function removeThinking() {
+    const el = document.getElementById('chatThinking');
+    if (el) el.remove();
+  }
+
+  function scrollChatToBottom() {
+    requestAnimationFrame(() => {
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    });
+  }
+
+  function notifyUnread() {
+    if (!chatOpen) {
+      unreadCount++;
+      unreadDot.classList.add('visible');
+    }
+  }
+
+  async function loadHistory() {
+    try {
+      const resp = await fetch('/api/chat/history');
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const messages = data.messages || data || [];
+      if (!Array.isArray(messages)) return;
+      messagesEl.innerHTML = '';
+      messages.forEach(m => {
+        const role = m.role === 'user' ? 'user' : m.role === 'agent' || m.role === 'assistant' ? 'agent' : m.role;
+        if (role === 'user' || role === 'agent') {
+          appendMessage(role, m.content || m.message || '', m.timestamp || m.created_at);
+        }
+      });
+      lastMessageCount = messages.length;
+      // Update status based on whether we got a response
+      statusDot.classList.add('online');
+    } catch (err) {
+      // Silently fail - server might not be running
+      statusDot.classList.remove('online');
+    }
+  }
+
+  async function sendMessage() {
+    const text = input.value.trim();
+    if (!text || isSending) return;
+
+    isSending = true;
+    sendBtn.disabled = true;
+    input.value = '';
+
+    appendMessage('user', text, Date.now());
+    showThinking();
+
+    try {
+      const resp = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text })
+      });
+
+      removeThinking();
+
+      if (!resp.ok) {
+        throw new Error('Server returned ' + resp.status);
+      }
+
+      const data = await resp.json();
+      const reply = data.response || data.content || data.message || data.reply || '';
+      if (reply) {
+        appendMessage('agent', reply, data.timestamp || Date.now());
+        statusDot.classList.add('online');
+        notifyUnread();
+      }
+    } catch (err) {
+      removeThinking();
+      appendMessage('error', 'Failed to send message: ' + err.message);
+    } finally {
+      isSending = false;
+      sendBtn.disabled = false;
+      input.focus();
+    }
+  }
+
+  sendBtn.addEventListener('click', sendMessage);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+
+  // Load history on init
+  loadHistory();
+})();
+</script>
+</body>
+</html>
