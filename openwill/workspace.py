@@ -38,6 +38,7 @@ class GlobalWorkspace:
         self.competition_buffer: list[BroadcastMessage] = []
         self.module_states: dict[str, dict] = {}
         self._lock = threading.Lock()
+        self._broadcast_callbacks: list[callable] = []  # on_broadcast listeners
 
     def submit(self, source: str, content: str, urgency: float,
                metadata: dict = None) -> None:
@@ -80,6 +81,14 @@ class GlobalWorkspace:
             return self.FATIGUE_PENALTY
         return 1.0
 
+    def on_broadcast(self, callback: callable) -> None:
+        """Register a callback to be called when a broadcast resolves.
+
+        The callback receives the winning BroadcastMessage as its argument.
+        Callbacks are called synchronously after resolve() — keep them fast.
+        """
+        self._broadcast_callbacks.append(callback)
+
     def resolve(self) -> Optional[BroadcastMessage]:
         """Resolve competition: highest effective urgency wins.
 
@@ -109,6 +118,14 @@ class GlobalWorkspace:
             if len(self.broadcast_history) > self.MAX_HISTORY:
                 self.broadcast_history = self.broadcast_history[-self.MAX_HISTORY:]
             self.competition_buffer.clear()
+
+            # Notify broadcast listeners
+            for callback in self._broadcast_callbacks:
+                try:
+                    callback(winner)
+                except Exception:
+                    pass  # Callbacks must not crash the workspace
+
             return winner
 
     def broadcast(self) -> Optional[BroadcastMessage]:

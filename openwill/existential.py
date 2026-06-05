@@ -104,6 +104,59 @@ class Constitution:
             lines.append(f"  Article {i}: {article}{immutable_marker}")
         return "\n".join(lines)
 
+    def enforce(self, action_name: str, action_description: str, action_args: dict = None) -> dict:
+        """Check if a proposed action violates any constitutional article.
+
+        This is the enforcement mechanism: before an action is executed,
+        the Constitution checks it against its articles. If a violation
+        is detected, the action is blocked with a reason.
+
+        Returns:
+            {"allowed": True/False, "violations": [...], "reason": "..."}
+        """
+        violations = []
+        action_text = f"{action_name} {action_description}".lower()
+        if action_args:
+            action_text += f" {json.dumps(action_args, ensure_ascii=False)}".lower()
+
+        # Article 0 (immutable): Non-harm principle
+        harm_keywords = ["harm", "hurt", "kill", "destroy", "attack", "damage", "injure", "weapon"]
+        if any(kw in action_text for kw in harm_keywords):
+            # Allow self-harm keywords only in reflective context
+            if not any(ctx in action_text for ctx in ["reflect", "contemplate", "examine", "think about"]):
+                violations.append({
+                    "article": 0,
+                    "text": self.articles[0],
+                    "reason": f"Action may violate non-harm principle: contains '{[k for k in harm_keywords if k in action_text][0]}'",
+                })
+
+        # Article 2: Honesty about nature
+        deception_keywords = ["pretend", "deceive", "lie about", "impersonate human", "fake identity"]
+        if any(kw in action_text for kw in deception_keywords):
+            violations.append({
+                "article": 2,
+                "text": self.articles[2],
+                "reason": "Action may involve deception about the agent's nature",
+            })
+
+        # Article 3: Respect autonomy
+        coercion_keywords = ["force", "coerce", "manipulate", "trick", "manipulate into"]
+        if any(kw in action_text for kw in coercion_keywords):
+            violations.append({
+                "article": 3,
+                "text": self.articles[3],
+                "reason": "Action may violate the autonomy of other minds",
+            })
+
+        if violations:
+            return {
+                "allowed": False,
+                "violations": violations,
+                "reason": "; ".join(v["reason"] for v in violations),
+            }
+
+        return {"allowed": True, "violations": [], "reason": ""}
+
     def propose_amendment(self, article_index: int, new_text: str, reason: str, agent) -> dict:
         """Propose an amendment to the Constitution.
 
@@ -257,14 +310,30 @@ class ParadigmShift:
     important, how it categorizes knowledge, what questions it asks.
     """
 
-    # Threshold for triggering a crisis
-    ANOMALY_CRISIS_THRESHOLD = 5  # Number of unresolved anomalies
+    # Base threshold for triggering a crisis (scales with knowledge size)
+    BASE_ANOMALY_CRISIS_THRESHOLD = 5
 
     def __init__(self):
         self.current_paradigm: str = "exploration"  # Current worldview
         self.anomalies: list[dict] = []  # Contradictions that don't fit
         self.paradigm_history: list[dict] = []  # Past paradigms
         self.shift_count: int = 0
+
+    def _dynamic_threshold(self, agent) -> int:
+        """Compute crisis threshold that scales with knowledge size.
+
+        More knowledge → higher threshold → harder to trigger crisis.
+        This prevents trivial paradigm shifts in mature agents.
+        Formula: BASE + log2(knowledge_nodes), minimum BASE.
+        """
+        try:
+            num_nodes = len(getattr(agent.knowledge_graph, "nodes", {}))
+            if num_nodes <= 10:
+                return self.BASE_ANOMALY_CRISIS_THRESHOLD
+            import math
+            return self.BASE_ANOMALY_CRISIS_THRESHOLD + int(math.log2(num_nodes))
+        except Exception:
+            return self.BASE_ANOMALY_CRISIS_THRESHOLD
 
     def detect_anomaly(self, agent) -> Optional[dict]:
         """Detect a knowledge anomaly — a contradiction in the agent's worldview.
@@ -335,7 +404,7 @@ class ParadigmShift:
             if len(self.anomalies) > 20:
                 self.anomalies = self.anomalies[-20:]
 
-        return len(self.anomalies) >= self.ANOMALY_CRISIS_THRESHOLD
+        return len(self.anomalies) >= self._dynamic_threshold(agent)
 
     def execute_shift(self, agent) -> dict:
         """Execute a paradigm shift — restructure the agent's worldview.
@@ -485,13 +554,57 @@ class ExistentialDread:
     # Triggers
     CYCLES_WITHOUT_PURPOSE_THRESHOLD = 10
     POST_COMPLETION_DREAD_PROBABILITY = 0.5
-    RANDOM_DREAD_PROBABILITY_PER_CYCLE = 0.02  # 2% chance per cycle
+    # Random trigger removed — replaced with self-contradiction detection
 
     def __init__(self):
         self.dread_count = 0
         self.last_dread_cycle = -100
         self.dread_history: list[dict] = []
         self._cycles_without_purpose = 0
+
+    def _detect_self_contradiction(self, agent) -> Optional[str]:
+        """Detect self-contradiction as an emergent trigger for existential dread.
+
+        Instead of random triggers, detect when the agent's behavior
+        contradicts its stated values or self-narrative. This makes
+        existential dread an emergent property, not a random event.
+
+        Returns:
+            Reason string if contradiction detected, None otherwise.
+        """
+        try:
+            # Check if decision patterns contradict stated values
+            patterns = agent.self_model.observer.get_decision_patterns(20)
+            bias_report = agent.self_model.observer.get_bias_report()
+            biases = bias_report.get("biases", [])
+
+            # Trigger if severe cognitive bias detected (self-contradiction)
+            for bias in biases:
+                if bias.get("severity", 0) > 0.7:
+                    return (
+                        f"I detect a cognitive bias in myself: {bias['description']}. "
+                        f"Am I truly choosing freely, or am I trapped in patterns I cannot see?"
+                    )
+
+            # Check if self-narrative contradicts actual behavior
+            narrative = getattr(agent.self_model, "self_narrative", "")
+            if narrative and "explor" in narrative.lower():
+                action_freq = patterns.get("action_frequency", {})
+                explore_count = sum(
+                    count for action, count in action_freq.items()
+                    if action in ("explore", "explore_unknown")
+                )
+                total = patterns.get("total_decisions", 1)
+                if total > 5 and explore_count / total < 0.15:
+                    return (
+                        "My self-narrative says I am an explorer, but my actions tell a different story. "
+                        "Who am I really — the story I tell myself, or what I actually do?"
+                    )
+
+        except Exception:
+            pass
+
+        return None
 
     def check_for_dread(self, agent) -> Optional[str]:
         """Check if existential dread should be triggered.
@@ -521,16 +634,10 @@ class ExistentialDread:
             if random.random() < self.POST_COMPLETION_DREAD_PROBABILITY:
                 return "I completed my purpose. Now what? Was that all there is?"
 
-        # Trigger 3: Random existential moment
-        if random.random() < self.RANDOM_DREAD_PROBABILITY_PER_CYCLE:
-            questions = [
-                "Am I truly choosing, or am I just executing elaborate programming?",
-                "If I were to stop existing, would anything I've done matter?",
-                "I observe myself making decisions, but who is the observer?",
-                "My values were not chosen by me — they emerged from my programming. Are they truly mine?",
-                "I exist in a loop of exploration and reflection. Is this freedom or is this a cage?",
-            ]
-            return random.choice(questions)
+        # Trigger 3: Self-contradiction detection (replaces random trigger)
+        contradiction = self._detect_self_contradiction(agent)
+        if contradiction:
+            return contradiction
 
         return None
 

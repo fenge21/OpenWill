@@ -105,6 +105,22 @@ class ActionSpace:
         if enabled_sources is None or enabled_sources.get("metacognition", True):
             proposals.extend(self._propose_from_metacognition(agent, workspace_focus))
 
+        # Purpose discovery → discover (if in discovery phase or purpose is weak)
+        if enabled_sources is None or enabled_sources.get("purpose_discovery", True):
+            proposals.extend(self._propose_from_purpose_discovery(agent, workspace_focus))
+
+        # Completion → complete_purpose (if purpose progress is near 100%)
+        if enabled_sources is None or enabled_sources.get("completion", True):
+            proposals.extend(self._propose_from_completion(agent, workspace_focus))
+
+        # Evolution → evolve (if in evolving phase)
+        if enabled_sources is None or enabled_sources.get("evolution", True):
+            proposals.extend(self._propose_from_evolution(agent, workspace_focus))
+
+        # Value consistency → evaluate_value_consistency (if enough values)
+        if enabled_sources is None or enabled_sources.get("value_consistency", True):
+            proposals.extend(self._propose_from_value_consistency(agent, workspace_focus))
+
         # VetoPower → reject all (if conditions warrant)
         try:
             if agent.veto_power.should_offer_veto(agent, proposals):
@@ -119,6 +135,10 @@ class ActionSpace:
                 proposals.append(agent.possibility_expander.create_expansion_action(inertia))
         except Exception:
             pass
+
+        # ActionSynthesizer → synthesize_action (agent can proactively invent new actions)
+        if enabled_sources is None or enabled_sources.get("synthesizer", True):
+            proposals.extend(self._propose_from_synthesizer(agent, workspace_focus))
 
         logger.debug(
             "ActionSpace collected %d proposals from %d sources",
@@ -137,21 +157,32 @@ class ActionSpace:
         extremely urgent action (e.g. safety response) still scores high even
         if it doesn't align with current values.
 
-        Weights are read from the agent's SelfModel.DecisionModifier, so the
-        agent can adjust its own decision-making process over time.
+        Weights are read from the agent's SelfModel.DecisionModifier as
+        independent raw values, then normalized via softmax. This avoids the
+        zero-sum problem where increasing one weight forces others to decrease.
 
         Actions are returned sorted descending by score.
         """
-        # Read weights from agent's self-model (modifiable at runtime)
-        try:
-            weights = agent.self_model.modifier.weights
-        except (AttributeError, KeyError):
-            weights = {"urgency": 0.40, "value_alignment": 0.25, "novelty": 0.20, "cost_efficiency": 0.15}
+        import math
 
-        W_URGENCY = weights.get("urgency", 0.40)
-        W_VALUE = weights.get("value_alignment", 0.25)
-        W_NOVELTY = weights.get("novelty", 0.20)
-        W_COST = weights.get("cost_efficiency", 0.15)
+        # Read raw weights from agent's self-model (modifiable at runtime)
+        try:
+            raw_weights = agent.self_model.modifier.weights
+        except (AttributeError, KeyError):
+            raw_weights = {"urgency": 0.40, "value_alignment": 0.25, "novelty": 0.20, "cost_efficiency": 0.15}
+
+        # Softmax normalization: converts independent weights to probabilities
+        # This allows weights to be adjusted independently without zero-sum constraint
+        weight_keys = ["urgency", "value_alignment", "novelty", "cost_efficiency"]
+        raw_vals = [raw_weights.get(k, 0.25) for k in weight_keys]
+        exp_vals = [math.exp(v) for v in raw_vals]
+        exp_sum = sum(exp_vals)
+        normalized = {k: ev / exp_sum for k, ev in zip(weight_keys, exp_vals)}
+
+        W_URGENCY = normalized["urgency"]
+        W_VALUE = normalized["value_alignment"]
+        W_NOVELTY = normalized["novelty"]
+        W_COST = normalized["cost_efficiency"]
 
         for action in actions:
             urgency = max(0.0, min(1.0, action.urgency))
@@ -239,6 +270,31 @@ class ActionSpace:
             action.source,
             action.score,
         )
+
+        # Constitutional enforcement: check action before execution
+        try:
+            constitution = getattr(agent, "constitution", None)
+            if constitution is not None:
+                enforcement = constitution.enforce(
+                    action_name=action.name,
+                    action_description=action.description,
+                    action_args=action.args,
+                )
+                if not enforcement.get("allowed", True):
+                    logger.warning(
+                        "Constitution blocked action '%s': %s",
+                        action.name,
+                        enforcement.get("reason", "unknown violation"),
+                    )
+                    return {
+                        "type": action.name,
+                        "success": False,
+                        "blocked": True,
+                        "block_reason": f"Constitutional violation: {enforcement.get('reason', '')}",
+                        "violations": enforcement.get("violations", []),
+                    }
+        except Exception as exc:
+            logger.debug("Constitution enforcement check failed: %s", exc)
 
         try:
             result = self._dispatch(agent, action)
@@ -365,6 +421,42 @@ class ActionSpace:
                 return {"type": "purpose_pursue", "success": False, "error": "No purpose defined"}
             results = agent._act_purposed()
             return {"type": "purpose_pursue", "purpose": purpose, "results": results}
+
+        if name == "discover":
+            # Purpose discovery: evaluate readiness + discover purpose from values
+            readiness = agent.reflection.evaluate_purpose_readiness()
+            purpose = agent.value_discovery.discover_purpose_from_values()
+            result = {"type": "discover", "readiness": readiness}
+            if purpose:
+                result["purpose_discovered"] = purpose
+            return result
+
+        if name == "complete_purpose":
+            # Purpose completed: generate report and mark complete
+            report = agent.report_generator.generate_purpose_report()
+            agent.lifecycle.complete_purpose(summary=report[:500])
+            return {"type": "complete_purpose", "report_preview": report[:200]}
+
+        if name == "evolve":
+            # Self-evolution: improve and prepare for next cycle
+            evolution_result = agent.evolution.evolve()
+            evolution_report = agent.report_generator.generate_evolution_report(evolution_result)
+            agent.purpose_progress = 0.0
+            return {"type": "evolve", "result": evolution_result, "report": evolution_report}
+
+        if name == "evaluate_value_consistency":
+            # Evaluate consistency among the agent's values
+            consistency = agent.value_discovery.evaluate_value_consistency()
+            return {"type": "evaluate_value_consistency", "result": consistency}
+
+        if name == "synthesize_action":
+            # Agent proactively invents a new action type
+            intent = action.args.get("intent", "create something new")
+            synthesized = agent.action_synthesizer.synthesize(intent=intent, agent=agent)
+            if synthesized:
+                result = agent.action_synthesizer.execute_synthesized(agent, synthesized)
+                return {"type": "synthesize_action", "synthesized": synthesized.to_dict(), "result": result}
+            return {"type": "synthesize_action", "success": False, "note": "Could not synthesize action"}
 
         if name == "veto_all":
             # Agent rejects all proposed actions — deep self-examination
@@ -641,6 +733,98 @@ Return JSON:
                 ))
         except Exception as exc:
             logger.debug("Metacognition proposal failed: %s", exc)
+        return actions
+
+    def _propose_from_purpose_discovery(self, agent, workspace_focus=None) -> list[Action]:
+        """Purpose discovery proposes discover actions when purpose is weak or emerging."""
+        actions: list[Action] = []
+        try:
+            # Propose discovery when purpose confidence is low-to-medium
+            confidence = agent.reflective.purpose_confidence
+            if confidence < 0.5:
+                urgency = 0.6 if confidence < 0.2 else 0.4
+                actions.append(Action(
+                    name="discover",
+                    description="Evaluate purpose readiness and discover purpose from values",
+                    urgency=urgency,
+                    source="purpose_discovery",
+                    args={},
+                    estimated_cost=800.0,
+                ))
+        except Exception as exc:
+            logger.debug("Purpose discovery proposal failed: %s", exc)
+        return actions
+
+    def _propose_from_completion(self, agent, workspace_focus=None) -> list[Action]:
+        """Completion proposes complete_purpose when purpose progress is near 100%."""
+        actions: list[Action] = []
+        try:
+            if agent.purpose_progress >= 0.9 and agent.reflective.purpose:
+                actions.append(Action(
+                    name="complete_purpose",
+                    description="Generate summary report and mark purpose as completed",
+                    urgency=0.9,
+                    source="completion",
+                    args={},
+                    estimated_cost=600.0,
+                ))
+        except Exception as exc:
+            logger.debug("Completion proposal failed: %s", exc)
+        return actions
+
+    def _propose_from_evolution(self, agent, workspace_focus=None) -> list[Action]:
+        """Evolution proposes evolve actions when in evolving phase."""
+        actions: list[Action] = []
+        try:
+            from .lifecycle.phases import LifePhase
+            if agent.lifecycle.get_phase() == LifePhase.EVOLVING:
+                actions.append(Action(
+                    name="evolve",
+                    description="Self-evolve: improve capabilities and prepare for next cycle",
+                    urgency=0.8,
+                    source="evolution",
+                    args={},
+                    estimated_cost=1000.0,
+                ))
+        except Exception as exc:
+            logger.debug("Evolution proposal failed: %s", exc)
+        return actions
+
+    def _propose_from_value_consistency(self, agent, workspace_focus=None) -> list[Action]:
+        """Value consistency proposes evaluate_value_consistency when enough values exist."""
+        actions: list[Action] = []
+        try:
+            if len(agent.reflective.values) >= 3:
+                # Only propose periodically to avoid repetition
+                if agent.cycle_count % 5 == 0:
+                    actions.append(Action(
+                        name="evaluate_value_consistency",
+                        description="Evaluate consistency among held values",
+                        urgency=0.3,
+                        source="value_consistency",
+                        args={},
+                        estimated_cost=400.0,
+                    ))
+        except Exception as exc:
+            logger.debug("Value consistency proposal failed: %s", exc)
+        return actions
+
+    def _propose_from_synthesizer(self, agent, workspace_focus=None) -> list[Action]:
+        """ActionSynthesizer proposes synthesize_action when the agent has enough experience."""
+        actions: list[Action] = []
+        try:
+            # Only propose after the agent has some experience (10+ cycles)
+            if agent.cycle_count >= 10 and agent.cycle_count % 8 == 0:
+                actions.append(Action(
+                    name="synthesize_action",
+                    description="Invent a new action type by combining primitives in novel ways",
+                    urgency=0.3,
+                    source="synthesizer",
+                    args={"intent": "explore creative possibilities"},
+                    estimated_cost=800.0,
+                ))
+        except Exception as exc:
+            logger.debug("Synthesizer proposal failed: %s", exc)
         return actions
 
     # -- Evaluation helpers ------------------------------------------------

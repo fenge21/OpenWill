@@ -188,11 +188,35 @@ class LifecycleManager:
             "current_purpose_actions": self.purpose_action_count,
         }
 
+    # Legal phase transitions: maps each phase to the set of phases it may transition to
+    VALID_TRANSITIONS: dict[LifePhase, set[LifePhase]] = {
+        LifePhase.AWAKENING: {LifePhase.EXPLORING},
+        LifePhase.EXPLORING: {LifePhase.REFLECTING, LifePhase.DISCOVERING},
+        LifePhase.REFLECTING: {LifePhase.EXPLORING, LifePhase.DISCOVERING},
+        LifePhase.DISCOVERING: {LifePhase.EXPLORING, LifePhase.REFLECTING, LifePhase.PURPOSED},
+        LifePhase.PURPOSED: {LifePhase.COMPLETED},
+        LifePhase.COMPLETED: {LifePhase.EVOLVING},
+        LifePhase.EVOLVING: {LifePhase.EXPLORING},
+    }
+
     def _transition_to(self, new_phase: LifePhase):
-        """Transition to a new phase"""
+        """Transition to a new phase with legality validation."""
         import time
+
+        # Validate transition legality
+        allowed = self.VALID_TRANSITIONS.get(self.current_phase, set())
+        if new_phase not in allowed:
+            logger.warning(
+                "Invalid lifecycle transition: %s → %s (allowed: %s). Transition blocked.",
+                self.current_phase.value,
+                new_phase.value,
+                ", ".join(p.value for p in allowed) if allowed else "(none)",
+            )
+            return
+
+        old_phase = self.current_phase
         self.phase_history.append({
-            "from": self.current_phase.value,
+            "from": old_phase.value,
             "to": new_phase.value,
             "timestamp": time.time(),
             "cycle": self.cycle_count,

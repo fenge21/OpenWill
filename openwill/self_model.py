@@ -234,6 +234,11 @@ class DecisionModifier:
     def adjust_weights(self, new_weights: dict[str, float], reason: str = ""):
         """Adjust scoring weights.
 
+        Weights are stored as independent raw values (not normalized).
+        This avoids the zero-sum problem where increasing one weight
+        forces others to decrease. Normalization happens at evaluation
+        time via softmax in ActionSpace.evaluate_actions().
+
         Args:
             new_weights: Partial dict of weights to update.
             reason: Why the agent is making this change.
@@ -241,13 +246,8 @@ class DecisionModifier:
         old_weights = dict(self.weights)
         for key, value in new_weights.items():
             if key in self.weights:
-                self.weights[key] = max(0.0, min(1.0, float(value)))
-
-        # Normalize so weights sum to 1.0
-        total = sum(self.weights.values())
-        if total > 0:
-            for key in self.weights:
-                self.weights[key] /= total
+                # Clamp to [0.01, 2.0] — weights are independent, not normalized
+                self.weights[key] = max(0.01, min(2.0, float(value)))
 
         self.modification_history.append({
             "timestamp": time.time(),

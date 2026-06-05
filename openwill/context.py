@@ -102,40 +102,80 @@ class ContextBuilder:
             context_type: One of "cycle", "chat", "reflection".
 
         Returns:
-            Assembled system prompt string.
+            Assembled system prompt string, trimmed to fit token budget.
         """
+        # Token budget: reserve 30% of context window for user/assistant turns
+        max_prompt_tokens = int(TYPICAL_CONTEXT_WINDOW * 0.70)
+
         layers: list[str] = [self._fixed_layer()]
 
         if context_type == "cycle":
-            layers.append(self._values_layer(agent))
-            layers.append(self._purpose_layer(agent))
-            layers.append(self._knowledge_layer(agent))
-            layers.append(self._self_model_layer(agent))
-            layers.append(self._constitution_layer(agent))
-            layers.append(self._skills_layer(agent))
-            layers.append(self._tools_layer(agent))
-            layers.append(self._budget_layer(agent))
+            # Ordered by priority: highest first. Lower layers are trimmed first.
+            layer_builders = [
+                ("values",       lambda: self._values_layer(agent)),
+                ("purpose",      lambda: self._purpose_layer(agent)),
+                ("budget",       lambda: self._budget_layer(agent)),
+                ("knowledge",    lambda: self._knowledge_layer(agent)),
+                ("self_model",   lambda: self._self_model_layer(agent)),
+                ("constitution", lambda: self._constitution_layer(agent)),
+                ("skills",       lambda: self._skills_layer(agent)),
+                ("tools",        lambda: self._tools_layer(agent)),
+            ]
 
         elif context_type == "chat":
-            layers.append(self._values_layer(agent))
-            layers.append(self._skills_index_layer(agent))
-            layers.append(self._tools_layer(agent))
-            layers.append(self._budget_layer(agent))
+            layer_builders = [
+                ("values",      lambda: self._values_layer(agent)),
+                ("skills_idx",  lambda: self._skills_index_layer(agent)),
+                ("budget",      lambda: self._budget_layer(agent)),
+                ("tools",       lambda: self._tools_layer(agent)),
+            ]
 
         elif context_type == "reflection":
-            layers.append(self._values_layer(agent))
-            layers.append(self._all_insights_layer(agent))
-            layers.append(self._purpose_history_layer(agent))
+            layer_builders = [
+                ("values",       lambda: self._values_layer(agent)),
+                ("insights",     lambda: self._all_insights_layer(agent)),
+                ("purpose_hist", lambda: self._purpose_history_layer(agent)),
+            ]
 
         else:
             logger.warning("Unknown context_type '%s', falling back to 'cycle'", context_type)
-            layers.append(self._values_layer(agent))
-            layers.append(self._purpose_layer(agent))
-            layers.append(self._skills_layer(agent))
-            layers.append(self._tools_layer(agent))
-            layers.append(self._budget_layer(agent))
+            layer_builders = [
+                ("values",   lambda: self._values_layer(agent)),
+                ("purpose",  lambda: self._purpose_layer(agent)),
+                ("budget",   lambda: self._budget_layer(agent)),
+                ("skills",   lambda: self._skills_layer(agent)),
+                ("tools",    lambda: self._tools_layer(agent)),
+            ]
 
-        return "\n\n".join(layers)
+        # Build layers and enforce token budget
+        built_layers: list[str] = []
+        total_tokens = estimate_tokens(layers[0])
+
+        for name, builder in layer_builders:
+            layer_text = builder()
+            if not layer_text:
+                continue
+
+            layer_tokens = estimate_tokens(layer_text)
+            if total_tokens + layer_tokens <= max_prompt_tokens:
+                built_layers.append(layer_text)
+                total_tokens += layer_tokens
+            else:
+                # Try to fit a truncated version (first 500 chars)
+                truncated = layer_text[:500] + "..." if len(layer_text) > 500 else layer_text
+                trunc_tokens = estimate_tokens(truncated)
+                if total_tokens + trunc_tokens <= max_prompt_tokens:
+                    built_layers.append(truncated)
+                    total_tokens += trunc_tokens
+                    logger.debug("Truncated layer '%s' to fit budget (%d tokens)", name, trunc_tokens)
+                else:
+                    logger.debug("Dropped layer '%s' — would exceed budget (%d + %d > %d)",
+                                 name, total_tokens, trunc_tokens, max_prompt_tokens)
+
+        if total_tokens > max_prompt_tokens:
+            logger.warning("Context prompt exceeds budget: %d > %d tokens", total_tokens, max_prompt_tokens)
+
+        return "\n\n".join(layers[:1] + built_layers)
 
     def build_chat_prompt(self, agent, user_message: str) -> str:
         """Build system prompt for chat interactions.

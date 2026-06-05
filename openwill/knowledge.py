@@ -30,7 +30,9 @@ STOP_WORDS = frozenset({
 
 
 class KnowledgeGraph:
-    """Lightweight concept relationship network"""
+    """Lightweight concept relationship network with capacity management."""
+
+    MAX_NODES = 500  # Capacity upper limit
 
     def __init__(self, data_dir: str = "data"):
         self.data_dir = data_dir
@@ -86,6 +88,49 @@ class KnowledgeGraph:
                 "last_mentioned": 0.0,
             }
 
+    def _prune(self):
+        """Prune least-relevant nodes when capacity is exceeded.
+
+        Relevance score = mention_count * (outgoing + incoming connections).
+        Nodes with the lowest relevance are removed first.
+        Removes 10% of nodes (the least relevant) to avoid frequent pruning.
+        """
+        if len(self.nodes) <= self.MAX_NODES:
+            return
+
+        # Score each node by relevance
+        scored = []
+        for concept, data in self.nodes.items():
+            outgoing = len(data["connections"])
+            incoming = len(self._incoming.get(concept, set()))
+            relevance = data["mention_count"] * (outgoing + incoming + 1)
+            scored.append((concept, relevance))
+
+        # Sort by relevance ascending (least relevant first)
+        scored.sort(key=lambda x: x[1])
+
+        # Remove bottom 10% of nodes
+        to_remove_count = max(1, len(self.nodes) - int(self.MAX_NODES * 0.9))
+        removed = 0
+        for concept, _ in scored:
+            if removed >= to_remove_count:
+                break
+            # Remove outgoing connections from other nodes
+            for target in list(self.nodes[concept]["connections"].keys()):
+                if target in self._incoming:
+                    self._incoming[target].discard(concept)
+            # Remove from incoming index
+            for source in self._incoming.get(concept, set()):
+                if source in self.nodes:
+                    self.nodes[source]["connections"].pop(concept, None)
+            # Remove the node itself
+            del self.nodes[concept]
+            self._incoming.pop(concept, None)
+            removed += 1
+
+        logger.info("KnowledgeGraph pruned: removed %d nodes (%d remaining)",
+                     removed, len(self.nodes))
+
     def add_relation(self, subject: str, predicate: str, obj: str):
         """Add a triple: subject --predicate--> obj"""
         now = time.time()
@@ -107,6 +152,10 @@ class KnowledgeGraph:
         self.nodes[obj]["mention_count"] += 1
         self.nodes[subject]["last_mentioned"] = now
         self.nodes[obj]["last_mentioned"] = now
+
+        # Enforce capacity: prune least-relevant nodes if over limit
+        if len(self.nodes) > self.MAX_NODES:
+            self._prune()
 
     def add_from_text(self, text: str, source: str = ""):
         """Extract key concepts and relations from text using simple heuristics.

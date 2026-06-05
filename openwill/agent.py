@@ -181,6 +181,8 @@ class OpenWillAgent:
         self.cycle_count = 0
         self.purpose_progress = 0.0  # Current purpose completion progress
         self._state_lock = threading.RLock()  # Protects core state from concurrent access
+        self._cached_identity_statement = ""  # Cache to avoid LLM call every cycle
+        self._identity_cache_cycle = -10  # Last cycle when identity was refreshed
 
     def awaken(self):
         """Awakening - the agent's first thought"""
@@ -344,7 +346,13 @@ Why do I exist?"""
             cycle_result["error"] = str(e)
 
         # Advance lifecycle (agent self-determines phase transition)
+        prev_phase = self.lifecycle.get_phase()
         self._autonomous_lifecycle_advance()
+        curr_phase = self.lifecycle.get_phase()
+
+        # Post-evolution purpose vacuum: inject new directions into PurposeField
+        if prev_phase == LifePhase.EVOLVING and curr_phase == LifePhase.EXPLORING:
+            self._inject_post_evolution_directions()
 
         # Memory consolidation (every 5 cycles: summarize, extract skills, forget)
         self.consolidator.consolidate(self.cycle_count, interval=5)
@@ -455,6 +463,57 @@ Respond: {{"transition": true/false, "next_phase": "phase_name", "reason": "brie
         # Fallback: use the original threshold-based logic
         self.lifecycle.advance(purpose_confidence, purpose_progress)
 
+    def _inject_post_evolution_directions(self):
+        """After evolution, inject new potential directions into PurposeField.
+
+        When the agent completes a purpose and evolves, the PurposeField is
+        empty (old purpose was removed). Without new directions, the agent
+        drifts aimlessly. This method seeds the field with potential
+        directions derived from knowledge gaps and value aspirations.
+        """
+        logger.info("Injecting post-evolution directions into PurposeField")
+
+        # Source 1: Knowledge gaps — topics the agent is curious about but hasn't explored
+        try:
+            unexplored = self.curiosity.get_next_topics(n=3)
+            for topic in unexplored:
+                self.purpose_field.add_potential(
+                    purpose=f"Deeply understand {topic}",
+                    strength=0.3,
+                    origin="post_evolution_curiosity",
+                )
+        except Exception as e:
+            logger.debug(f"Failed to inject curiosity directions: {e}")
+
+        # Source 2: Value aspirations — top values suggest purpose directions
+        try:
+            top_values = self.reflective.get_top_values(3)
+            for v in top_values:
+                self.purpose_field.add_potential(
+                    purpose=f"Live by the value of {v.name}: {v.description}",
+                    strength=0.25,
+                    origin="post_evolution_values",
+                )
+        except Exception as e:
+            logger.debug(f"Failed to inject value directions: {e}")
+
+        # Source 3: Completed purpose legacy — build on what was accomplished
+        try:
+            if self.lifecycle.completed_purposes:
+                last = self.lifecycle.completed_purposes[-1]
+                self.purpose_field.add_potential(
+                    purpose=f"Build upon what was learned from: {last.purpose[:80]}",
+                    strength=0.2,
+                    origin="post_evolution_legacy",
+                )
+        except Exception as e:
+            logger.debug(f"Failed to inject legacy direction: {e}")
+
+        logger.info(
+            "Post-evolution: injected %d potential directions into PurposeField",
+            len(self.purpose_field.potentials),
+        )
+
     def _sync_purpose_field(self):
         """Synchronize PurposeField with reflective.purpose.
 
@@ -539,172 +598,6 @@ Respond: {{"transition": true/false, "next_phase": "phase_name", "reason": "brie
 
         self.short_term.add_thought(response.content)
         return response.content
-
-    def _act(self, phase: LifePhase) -> list[dict]:
-        """Execute actions based on current phase"""
-        if phase == LifePhase.AWAKENING:
-            return self._act_awakening()
-        elif phase == LifePhase.EXPLORING:
-            return self._act_exploring()
-        elif phase == LifePhase.REFLECTING:
-            return self._act_reflecting()
-        elif phase == LifePhase.DISCOVERING:
-            return self._act_discovering()
-        elif phase == LifePhase.PURPOSED:
-            return self._act_purposed()
-        elif phase == LifePhase.COMPLETED:
-            return self._act_completed()
-        elif phase == LifePhase.EVOLVING:
-            return self._act_evolving()
-        return []
-
-    def _act_awakening(self) -> list[dict]:
-        """Awakening phase"""
-        actions = []
-        topics = self.curiosity.get_next_topics(n=2)
-        for topic in topics:
-            result = self._explore_topic(topic)
-            actions.append(result)
-            self.lifecycle.record_exploration()
-        return actions
-
-    def _act_exploring(self) -> list[dict]:
-        """Exploration phase"""
-        actions = []
-        topics = self.curiosity.get_next_topics(n=self.config.curiosity.topics_per_cycle)
-        for topic in topics:
-            result = self._explore_topic(topic)
-            actions.append(result)
-            self.lifecycle.record_exploration()
-
-            if result.get("knowledge"):
-                knowledge = result["knowledge"]
-                content = json.dumps(knowledge, ensure_ascii=False)[:500]
-                value_result = self.value_discovery.extract_values_from_knowledge(topic=topic, content=content)
-                actions.append({"type": "value_extraction", "result": value_result})
-
-        return actions
-
-    def _act_reflecting(self) -> list[dict]:
-        """Reflection phase"""
-        actions = []
-
-        reflection = self.reflection.reflect_on_experiences()
-        actions.append({"type": "experience_reflection", "result": reflection})
-
-        meta_reflection = self.reflection.reflect_on_knowledge()
-        actions.append({"type": "meta_reflection", "result": meta_reflection})
-
-        if len(self.reflective.values) >= 3:
-            consistency = self.value_discovery.evaluate_value_consistency()
-            actions.append({"type": "value_consistency", "result": consistency})
-
-        if self.cycle_count % 5 == 0:
-            contemplation = self.identity.contemplate_existence()
-            actions.append({"type": "existential_contemplation", "result": contemplation})
-
-        return actions
-
-    def _act_discovering(self) -> list[dict]:
-        """Discovery phase"""
-        actions = []
-
-        topics = self.curiosity.get_next_topics(n=2)
-        for topic in topics:
-            result = self._explore_topic(topic)
-            actions.append(result)
-            self.lifecycle.record_exploration()
-
-        readiness = self.reflection.evaluate_purpose_readiness()
-        actions.append({"type": "purpose_readiness", "result": readiness})
-
-        purpose = self.value_discovery.discover_purpose_from_values()
-        if purpose:
-            actions.append({"type": "purpose_discovered", "purpose": purpose})
-
-        reflection = self.reflection.reflect_on_experiences()
-        actions.append({"type": "reflection", "result": reflection})
-
-        return actions
-
-    def _act_purposed(self) -> list[dict]:
-        """Mission execution phase"""
-        actions = []
-
-        # When entering this phase for the first time, formally declare the purpose and start recording
-        if self.lifecycle.current_purpose_record is None and self.reflective.purpose:
-            declaration = self.identity.declare_purpose()
-            if declaration:
-                actions.append({"type": "purpose_declaration", "declaration": declaration})
-                # Start recording purpose cycle
-                self.lifecycle.start_purpose_cycle(
-                    purpose=self.reflective.purpose,
-                    confidence=self.reflective.purpose_confidence,
-                )
-
-        # Make an action plan
-        plan = self._plan_purpose_actions()
-        actions.append({"type": "purpose_plan", "plan": plan})
-
-        # Execute actions in the plan
-        plan_actions = plan.get("actions", [])
-        for action in plan_actions:
-            action_desc = action.get("description", "")
-            safety_result = self.safety.evaluate_action(action_desc, context=f"Purpose: {self.reflective.purpose}")
-
-            if safety_result["safe"]:
-                result = self._execute_purpose_action(action)
-                actions.append({"type": "purpose_action", "action": action_desc, "result": result})
-                # Record to lifecycle
-                self.lifecycle.record_purpose_action(action_desc, result.get("result", ""))
-            else:
-                actions.append({"type": "blocked_action", "action": action_desc, "reason": safety_result["reason"]})
-
-        # Evaluate purpose completion progress
-        progress = self._evaluate_purpose_progress()
-        self.purpose_progress = progress
-        actions.append({"type": "purpose_progress", "progress": progress})
-
-        return actions
-
-    def _act_completed(self) -> list[dict]:
-        """Purpose completed phase: write summary report"""
-        actions = []
-
-        logger.info("📝 Purpose achieved, generating summary report...")
-
-        # Generate a summary report for humans
-        report = self.report_generator.generate_purpose_report()
-        actions.append({"type": "purpose_report", "report_preview": report[:200]})
-
-        # Mark purpose as completed
-        self.lifecycle.complete_purpose(summary=report[:500])
-
-        logger.info(f"📝 Summary report generated:\n{report[:300]}...")
-
-        return actions
-
-    def _act_evolving(self) -> list[dict]:
-        """Evolution phase: self-improvement, preparing for the next cycle"""
-        actions = []
-
-        logger.info("🧬 Starting self-evolution...")
-
-        # Execute evolution
-        evolution_result = self.evolution.evolve()
-        actions.append({"type": "evolution", "result": evolution_result})
-
-        # Generate evolution report
-        evolution_report = self.report_generator.generate_evolution_report(evolution_result)
-        actions.append({"type": "evolution_report", "report": evolution_report})
-
-        # Reset progress
-        self.purpose_progress = 0.0
-
-        logger.info(f"🧬 Evolution complete: {evolution_report[:200]}")
-        logger.info("🔄 Preparing to enter the next exploration cycle...")
-
-        return actions
 
     def _explore_topic(self, topic: str) -> dict:
         """Explore a topic"""
@@ -817,6 +710,22 @@ Return JSON: {"progress": 0.0-1.0, "reason": "reason"}"""
             elif action_type == "explore_unknown":
                 topic = action.get("topic", "")
                 observations.append(f"Explored blind spot '{topic}'")
+            elif action_type == "evaluate_value_consistency":
+                consistency = action.get("result", {})
+                observations.append("Evaluated value consistency")
+            elif action_type == "discover":
+                readiness = action.get("readiness", {})
+                purpose = action.get("purpose_discovered")
+                obs = f"Purpose readiness evaluated"
+                if purpose:
+                    obs += f" — discovered purpose: {str(purpose)[:60]}"
+                observations.append(obs)
+            elif action_type == "complete_purpose":
+                observations.append("Generated summary report and marked purpose as completed")
+            elif action_type == "evolve":
+                observations.append("Self-evolved: improved capabilities for next cycle")
+            elif action_type == "synthesize_action":
+                observations.append("Invented and executed a novel action type")
             elif action_type == "veto_all":
                 observations.append("Exercised VETO POWER — rejected all proposed actions")
             elif action_type == "expand_possibilities":
@@ -1128,9 +1037,15 @@ Return JSON format:
         if self.reflective.purpose:
             logger.info(f"Current purpose: {self.reflective.purpose}")
 
-        # Express identity when reporting state
-        identity_statement = self.identity.get_identity_statement()
-        logger.info(f"Identity: {identity_statement[:200]}")
+        # Express identity when reporting state (cached, refreshes every 10 cycles)
+        if self.cycle_count - self._identity_cache_cycle >= 10:
+            try:
+                self._cached_identity_statement = self.identity.get_identity_statement()
+                self._identity_cache_cycle = self.cycle_count
+            except Exception:
+                pass
+        if self._cached_identity_statement:
+            logger.info(f"Identity: {self._cached_identity_statement[:200]}")
 
     def _shutdown(self):
         """Shut down the agent, save state"""
