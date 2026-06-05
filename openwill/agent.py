@@ -2,6 +2,7 @@
 
 import json
 import logging
+import threading
 import time
 from typing import Optional
 
@@ -158,6 +159,7 @@ class OpenWillAgent:
         self.running = False
         self.cycle_count = 0
         self.purpose_progress = 0.0  # Current purpose completion progress
+        self._state_lock = threading.RLock()  # Protects core state from concurrent access
 
     def awaken(self):
         """Awakening - the agent's first thought"""
@@ -219,16 +221,19 @@ Why do I exist?"""
         Consciousness modules compete for attention via GlobalWorkspace.
         Purpose emerges from PurposeField (superposition of potentials).
         """
-        self.cycle_count += 1
+        with self._state_lock:
+            self.cycle_count += 1
+            cycle_num = self.cycle_count
+
         self.llm.reset_cycle_budget()
         phase = self.lifecycle.get_phase()
 
         logger.info(f"\n{'='*60}")
-        logger.info(f"🔄 Cycle #{self.cycle_count} | Phase: {phase.value} | Purpose cycle: {self.lifecycle.purpose_cycle}")
+        logger.info(f"🔄 Cycle #{cycle_num} | Phase: {phase.value} | Purpose cycle: {self.lifecycle.purpose_cycle}")
         logger.info(f"{'='*60}")
 
         cycle_result = {
-            "cycle": self.cycle_count,
+            "cycle": cycle_num,
             "phase": phase.value,
             "purpose_cycle": self.lifecycle.purpose_cycle,
             "actions": [],
@@ -390,9 +395,8 @@ Respond: {{"transition": true/false, "next_phase": "phase_name", "reason": "brie
                         target = data.get("next_phase", "")
                         for p in LifePhase:
                             if p.value == target:
-                                self.lifecycle.current_phase = p
+                                self.lifecycle._transition_to(p)
                                 logger.info(f"🔄 Agent chose phase transition: {current_phase.value} → {p.value} ({data.get('reason', '')})")
-                                self.lifecycle.save()
                                 break
                     return
             except Exception as e:
@@ -408,9 +412,21 @@ Respond: {{"transition": true/false, "next_phase": "phase_name", "reason": "brie
         - If reflective has a purpose but PurposeField doesn't, add it
         - If PurposeField's dominant is stronger than reflective's, update reflective
         - If reflective's purpose changed (e.g. after evolution), refresh the field
+        - If reflective's purpose is "[Completed] ...", remove from field to prevent re-injection
         """
         reflective_purpose = self.reflective.purpose
         reflective_confidence = self.reflective.purpose_confidence
+
+        # Case 0: reflective purpose is completed — remove from field to prevent resurrection
+        if reflective_purpose and reflective_purpose.startswith("[Completed]"):
+            original = reflective_purpose.replace("[Completed] ", "").replace("[Completed]", "")
+            for potential in list(self.purpose_field.potentials):
+                if potential.purpose == original or (
+                    self.purpose_field._word_similarity(potential.purpose, original) > 0.7
+                ):
+                    self.purpose_field.weaken(potential.purpose, amount=1.0)
+                    logger.info("Removed completed purpose from field: %s", potential.purpose[:60])
+            return  # Don't sync completed purposes back into the field
 
         # Case 1: reflective has a purpose but field is empty → seed the field
         if reflective_purpose and reflective_confidence > 0.3 and not self.purpose_field.potentials:
@@ -937,14 +953,13 @@ Return JSON format:
         """
         Use a tool directly (for external calls or evolution phase)
 
-        Args:
-            tool_name: Tool name
-            **kwargs: Tool parameters
+        Thread-safe: acquires state lock to prevent concurrent modification.
         """
         if not self.tools.has_tool(tool_name):
             return ToolResult(success=False, output="", error=f"Unknown tool: {tool_name}")
 
-        result = self.tools.execute(tool_name, **kwargs)
+        with self._state_lock:
+            result = self.tools.execute(tool_name, **kwargs)
         logger.info(f"🔧 Tool call: {tool_name} -> {'OK' if result.success else 'FAIL'}")
         return result
 

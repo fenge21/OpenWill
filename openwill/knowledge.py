@@ -35,6 +35,7 @@ class KnowledgeGraph:
     def __init__(self, data_dir: str = "data"):
         self.data_dir = data_dir
         self.nodes: dict[str, dict] = {}  # concept -> {"connections": {other: relation_type}, "mention_count": int, "last_mentioned": float}
+        self._incoming: dict[str, set] = {}  # Reverse index: concept -> set of nodes that point to it
         self._load()
 
     def _get_filepath(self) -> str:
@@ -48,10 +49,21 @@ class KnowledgeGraph:
                 with open(filepath, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 self.nodes = data.get("nodes", {})
+                # Rebuild reverse index from loaded nodes
+                self._rebuild_incoming_index()
                 logger.info(f"Loaded knowledge graph: {len(self.nodes)} nodes")
             except Exception as e:
                 logger.error(f"Failed to load knowledge graph: {e}")
                 self.nodes = {}
+
+    def _rebuild_incoming_index(self):
+        """Rebuild the reverse index from the current nodes dict."""
+        self._incoming = {}
+        for source, data in self.nodes.items():
+            for target in data.get("connections", {}):
+                if target not in self._incoming:
+                    self._incoming[target] = set()
+                self._incoming[target].add(source)
 
     def save(self):
         """Persist knowledge graph to disk"""
@@ -84,6 +96,11 @@ class KnowledgeGraph:
 
         # Add the directed edge
         self.nodes[subject]["connections"][obj] = predicate
+
+        # Maintain reverse index
+        if obj not in self._incoming:
+            self._incoming[obj] = set()
+        self._incoming[obj].add(subject)
 
         # Increment mention counts and update timestamps
         self.nodes[subject]["mention_count"] += 1
@@ -134,6 +151,7 @@ class KnowledgeGraph:
     def query(self, concept: str, depth: int = 2) -> set[str]:
         """Semantic expansion: find all concepts within `depth` hops.
 
+        Uses reverse index for O(V+E) instead of O(V*E) incoming edge lookup.
         Returns the expanded concept set for improved retrieval.
         """
         if concept not in self.nodes:
@@ -151,11 +169,11 @@ class KnowledgeGraph:
                         if neighbor not in visited:
                             visited.add(neighbor)
                             next_frontier.add(neighbor)
-                    # Follow incoming edges
-                    for other_node, data in self.nodes.items():
-                        if node in data["connections"] and other_node not in visited:
-                            visited.add(other_node)
-                            next_frontier.add(other_node)
+                    # Follow incoming edges via reverse index (O(1) lookup)
+                    for source_node in self._incoming.get(node, set()):
+                        if source_node not in visited:
+                            visited.add(source_node)
+                            next_frontier.add(source_node)
             frontier = next_frontier
             if not frontier:
                 break

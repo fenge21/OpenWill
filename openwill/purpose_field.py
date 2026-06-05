@@ -164,9 +164,11 @@ class PurposeField:
         """Collapse the superposition to a single purpose.
 
         Uses softmax-like selection: probability proportional to
-        exp(strength / temperature). With temperature=0.3, the
-        strongest purpose usually wins but randomness allows
-        occasional surprises.
+        exp(strength / temperature). Temperature is dynamic:
+        - High entropy (many similar-strength purposes) → high temperature → more exploration
+        - Low entropy (one dominant purpose) → low temperature → more deterministic
+
+        This mirrors thermodynamic annealing: the system "cools" as it converges.
         """
         if not self.potentials:
             logger.debug("Collapse attempted but no potentials exist")
@@ -175,8 +177,11 @@ class PurposeField:
         if len(self.potentials) == 1:
             winner = self.potentials[0]
         else:
+            # Dynamic temperature based on field entropy
+            temperature = self._compute_temperature()
+
             # Softmax selection with temperature
-            weights = [math.exp(p.strength / COLLAPSE_TEMPERATURE) for p in self.potentials]
+            weights = [math.exp(p.strength / temperature) for p in self.potentials]
             total = sum(weights)
             probabilities = [w / total for w in weights]
 
@@ -246,6 +251,34 @@ class PurposeField:
             logger.debug("Decay removed %d purposes below threshold", len(to_remove))
 
     # ── Interference logic ───────────────────────────────────────────
+
+    def _compute_temperature(self) -> float:
+        """Compute dynamic collapse temperature based on field entropy.
+
+        Temperature range: [0.1, 1.0]
+        - Low entropy (one dominant purpose) → low temperature → deterministic choice
+        - High entropy (many similar purposes) → high temperature → exploratory choice
+
+        Uses normalized Shannon entropy of the strength distribution.
+        """
+        if not self.potentials:
+            return COLLAPSE_TEMPERATURE
+
+        strengths = [p.strength for p in self.potentials]
+        total = sum(strengths)
+        if total == 0:
+            return 1.0
+
+        # Shannon entropy
+        probs = [s / total for s in strengths]
+        entropy = -sum(p * math.log(p + 1e-10) for p in probs if p > 0)
+
+        # Normalize: max entropy = log(N) for N equally likely purposes
+        max_entropy = math.log(len(self.potentials) + 1e-10)
+        normalized_entropy = entropy / max_entropy if max_entropy > 0 else 0.0
+
+        # Map [0, 1] entropy → [0.1, 1.0] temperature
+        return 0.1 + 0.9 * normalized_entropy
 
     def _compute_interference(self, purpose: str, knowledge: dict) -> float:
         """Compute how knowledge interferes with a purpose.

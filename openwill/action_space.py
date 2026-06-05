@@ -55,33 +55,38 @@ class ActionSpace:
         """Collect action proposals from ALL modules.
 
         Each module contributes actions based on its own internal state.
+        Modules also check the GlobalWorkspace's current broadcast to adjust
+        their proposals (e.g., lower urgency if a different concern dominates).
         The result is a flat list that will be scored and ranked later.
         """
         proposals: list[Action] = []
 
+        # Read current workspace broadcast so modules can react to it
+        workspace_focus = agent.workspace.broadcast()
+
         # Curiosity → explore
-        proposals.extend(self._propose_from_curiosity(agent))
+        proposals.extend(self._propose_from_curiosity(agent, workspace_focus))
 
         # Reflection → reflect / contemplate
-        proposals.extend(self._propose_from_reflection(agent))
+        proposals.extend(self._propose_from_reflection(agent, workspace_focus))
 
         # Purpose → execute (if a purpose is active)
-        proposals.extend(self._propose_from_purpose(agent))
+        proposals.extend(self._propose_from_purpose(agent, workspace_focus))
 
         # Budget → rest (if budget is running low)
-        proposals.extend(self._propose_from_budget(agent))
+        proposals.extend(self._propose_from_budget(agent, workspace_focus))
 
         # Identity → self-examination (periodically)
-        proposals.extend(self._propose_from_identity(agent))
+        proposals.extend(self._propose_from_identity(agent, workspace_focus))
 
         # Consolidator → skill-practice (if skills exist)
-        proposals.extend(self._propose_from_consolidator(agent))
+        proposals.extend(self._propose_from_consolidator(agent, workspace_focus))
 
         # Chat → respond (if there are pending chat messages)
-        proposals.extend(self._propose_from_chat(agent))
+        proposals.extend(self._propose_from_chat(agent, workspace_focus))
 
         # Meta-cognition → explore-unknown (for blind spots)
-        proposals.extend(self._propose_from_metacognition(agent))
+        proposals.extend(self._propose_from_metacognition(agent, workspace_focus))
 
         logger.debug(
             "ActionSpace collected %d proposals from %d sources",
@@ -91,22 +96,38 @@ class ActionSpace:
         return proposals
 
     def evaluate_actions(self, agent, actions: list[Action]) -> list[Action]:
-        """Score and rank actions using a composite metric.
+        """Score and rank actions using a weighted sum metric.
 
-        Composite score = urgency * value_alignment * novelty * cost_efficiency
+        Composite score = w1*urgency + w2*value_alignment + w3*novelty + w4*cost_efficiency
+
+        Unlike multiplication, weighted sum avoids the zero-point problem where
+        a single low factor zeroes out the entire score. This ensures that an
+        extremely urgent action (e.g. safety response) still scores high even
+        if it doesn't align with current values.
 
         Actions are returned sorted descending by score.
         """
+        # Weights: urgency is most important, then value alignment, novelty, cost
+        W_URGENCY = 0.40
+        W_VALUE = 0.25
+        W_NOVELTY = 0.20
+        W_COST = 0.15
+
         for action in actions:
             urgency = max(0.0, min(1.0, action.urgency))
             value_align = self._value_alignment(agent, action)
             novelty = self._action_repetition_penalty(action.name)
             cost_eff = self._cost_efficiency(action)
 
-            action.score = urgency * value_align * novelty * cost_eff
+            action.score = (
+                W_URGENCY * urgency
+                + W_VALUE * value_align
+                + W_NOVELTY * novelty
+                + W_COST * cost_eff
+            )
             action.score_reason = (
-                f"urgency={urgency:.2f} * val_align={value_align:.2f} "
-                f"* novelty={novelty:.2f} * cost_eff={cost_eff:.2f}"
+                f"urgency={urgency:.2f}*{W_URGENCY} + val_align={value_align:.2f}*{W_VALUE} "
+                f"+ novelty={novelty:.2f}*{W_NOVELTY} + cost_eff={cost_eff:.2f}*{W_COST}"
             )
 
         actions.sort(key=lambda a: a.score, reverse=True)
@@ -208,6 +229,15 @@ class ActionSpace:
                 topic = topics[0] if topics else "the nature of existence"
             knowledge = agent._explore_topic(topic)
             agent.lifecycle.record_exploration()
+
+            # Extract values from newly acquired knowledge (migrated from _act_exploring)
+            if isinstance(knowledge, dict) and knowledge.get("knowledge"):
+                try:
+                    content = json.dumps(knowledge["knowledge"], ensure_ascii=False)[:500]
+                    agent.value_discovery.extract_values_from_knowledge(topic=topic, content=content)
+                except Exception as exc:
+                    logger.debug("Value extraction after explore failed: %s", exc)
+
             return {"type": "explore", "topic": topic, "knowledge": knowledge}
 
         if name == "reflect":
@@ -276,6 +306,15 @@ class ActionSpace:
                 topic = topics[0] if topics else "unexplored territory"
             knowledge = agent._explore_topic(topic)
             agent.lifecycle.record_exploration()
+
+            # Extract values from newly acquired knowledge
+            if isinstance(knowledge, dict) and knowledge.get("knowledge"):
+                try:
+                    content = json.dumps(knowledge["knowledge"], ensure_ascii=False)[:500]
+                    agent.value_discovery.extract_values_from_knowledge(topic=topic, content=content)
+                except Exception as exc:
+                    logger.debug("Value extraction after explore_unknown failed: %s", exc)
+
             return {"type": "explore_unknown", "topic": topic, "knowledge": knowledge}
 
         if name == "purpose_pursue":
@@ -286,26 +325,93 @@ class ActionSpace:
             results = agent._act_purposed()
             return {"type": "purpose_pursue", "purpose": purpose, "results": results}
 
-        # Unknown action name — best-effort attempt
+        # Unknown action name — attempt generic LLM-driven execution
         logger.warning("Unknown action name: %s, attempting generic execution", name)
-        return {
-            "type": name,
-            "success": False,
-            "error": f"Unknown action: {name}",
-        }
+        return self._dispatch_generic(agent, action)
+
+    def _dispatch_generic(self, agent, action: Action) -> dict:
+        """Generic dispatch for LLM-proposed actions not in the standard set.
+
+        Uses the LLM to figure out how to execute the action step by step,
+        including tool calls if needed.
+        """
+        from .llm.interface import Message
+
+        tools_desc = agent.tools.get_tools_description()
+        system_prompt = f"""You are OpenWill, executing an action you freely chose.
+
+Action: {action.name}
+Description: {action.description}
+Arguments: {json.dumps(action.args) if action.args else "(none)"}
+
+Available tools:
+{tools_desc}
+
+Execute this action. You may:
+1. Call tools using: {{"tool": "tool_name", "args": {{"param": "value"}}}}
+2. Think and reason about the action
+3. Generate content or analysis
+
+Return JSON:
+{{
+    "result": "summary of what you did and what happened",
+    "tool_calls": [{{"tool": "name", "args": {{}}}}] (optional),
+    "learned": "what you learned from this action",
+    "success": true/false
+}}"""
+
+        try:
+            response = agent.llm.structured_output(
+                messages=[Message(role="user", content=f"Execute action: {action.name}")],
+                system_prompt=system_prompt,
+            )
+
+            # Execute any tool calls in the response
+            tool_results = []
+            for tc in response.get("tool_calls", []):
+                tool_name = tc.get("tool", "")
+                tool_args = tc.get("args", {})
+                if agent.tools.has_tool(tool_name):
+                    result = agent.tools.execute(tool_name, **tool_args)
+                    tool_results.append({
+                        "tool": tool_name,
+                        "success": result.success,
+                        "output": result.output[:500] if result.output else "",
+                    })
+
+            return {
+                "type": action.name,
+                "success": response.get("success", True),
+                "result": response.get("result", ""),
+                "learned": response.get("learned", ""),
+                "tool_results": tool_results,
+                "action_source": action.source,
+            }
+        except Exception as exc:
+            logger.error("Generic dispatch failed for %s: %s", action.name, exc)
+            return {
+                "type": action.name,
+                "success": False,
+                "error": str(exc),
+            }
 
     # -- Proposal helpers (one per module) ---------------------------------
 
-    def _propose_from_curiosity(self, agent) -> list[Action]:
+    def _propose_from_curiosity(self, agent, workspace_focus=None) -> list[Action]:
         """Curiosity proposes explore actions for topics it's curious about."""
         actions: list[Action] = []
         try:
+            # If workspace is focused on budget/purpose, lower exploration urgency
+            urgency_modifier = 1.0
+            if workspace_focus and workspace_focus.source in ("budget", "purpose"):
+                urgency_modifier = 0.5
+
             topics = agent.curiosity.get_next_topics(n=3)
             for topic in topics:
                 actions.append(Action(
                     name="explore",
                     description=f"Explore the topic: {topic}",
-                    urgency=0.6,
+                    urgency=0.6 * urgency_modifier,
                     source="curiosity",
                     args={"topic": topic},
                     estimated_cost=800.0,
@@ -314,16 +420,21 @@ class ActionSpace:
             logger.debug("Curiosity proposal failed: %s", exc)
         return actions
 
-    def _propose_from_reflection(self, agent) -> list[Action]:
+    def _propose_from_reflection(self, agent, workspace_focus=None) -> list[Action]:
         """Reflection proposes reflect/contemplate actions if enough unreflected experience."""
         actions: list[Action] = []
         try:
             recent = agent.short_term.get_recent(5)
             if len(recent) >= 3:
+                # If workspace is focused on reflection already, lower urgency
+                urgency = 0.5
+                if workspace_focus and workspace_focus.source == "reflection":
+                    urgency = 0.2
+
                 actions.append(Action(
                     name="reflect",
                     description="Reflect on recent experiences and extract insights",
-                    urgency=0.5,
+                    urgency=urgency,
                     source="reflection",
                     args={},
                     estimated_cost=600.0,
@@ -343,15 +454,20 @@ class ActionSpace:
             logger.debug("Reflection proposal failed: %s", exc)
         return actions
 
-    def _propose_from_purpose(self, agent) -> list[Action]:
+    def _propose_from_purpose(self, agent, workspace_focus=None) -> list[Action]:
         """Purpose proposes purpose_pursue actions if a purpose is active."""
         actions: list[Action] = []
         try:
             if agent.reflective.purpose and agent.reflective.purpose_confidence >= 0.5:
+                # Boost urgency if workspace is already focused on purpose
+                urgency = 0.8
+                if workspace_focus and workspace_focus.source == "purpose":
+                    urgency = 0.9  # Reinforce: we're already on track, keep going
+
                 actions.append(Action(
                     name="purpose_pursue",
                     description=f"Plan and execute actions toward purpose: {agent.reflective.purpose[:80]}",
-                    urgency=0.8,
+                    urgency=urgency,
                     source="purpose",
                     args={"purpose": agent.reflective.purpose},
                     estimated_cost=1200.0,
@@ -360,7 +476,7 @@ class ActionSpace:
             logger.debug("Purpose proposal failed: %s", exc)
         return actions
 
-    def _propose_from_budget(self, agent) -> list[Action]:
+    def _propose_from_budget(self, agent, workspace_focus=None) -> list[Action]:
         """Budget proposes rest actions if budget is running low."""
         actions: list[Action] = []
         try:
@@ -382,7 +498,7 @@ class ActionSpace:
             logger.debug("Budget proposal failed: %s", exc)
         return actions
 
-    def _propose_from_identity(self, agent) -> list[Action]:
+    def _propose_from_identity(self, agent, workspace_focus=None) -> list[Action]:
         """Identity proposes self-examination actions periodically."""
         actions: list[Action] = []
         try:
@@ -399,7 +515,7 @@ class ActionSpace:
             logger.debug("Identity proposal failed: %s", exc)
         return actions
 
-    def _propose_from_consolidator(self, agent) -> list[Action]:
+    def _propose_from_consolidator(self, agent, workspace_focus=None) -> list[Action]:
         """Consolidator proposes skill-practice actions if skills exist."""
         actions: list[Action] = []
         try:
@@ -418,7 +534,7 @@ class ActionSpace:
             logger.debug("Consolidator proposal failed: %s", exc)
         return actions
 
-    def _propose_from_chat(self, agent) -> list[Action]:
+    def _propose_from_chat(self, agent, workspace_focus=None) -> list[Action]:
         """Chat proposes respond actions if there are pending chat messages."""
         actions: list[Action] = []
         try:
@@ -426,10 +542,15 @@ class ActionSpace:
             sessions = agent.conversation_mgr._sessions if hasattr(agent, "conversation_mgr") else {}
             for session_id, session in sessions.items():
                 if session.pending_tool_calls or session.state.value == "TASK_WAITING":
+                    # Boost chat urgency if workspace is focused on human interaction
+                    urgency = 0.7
+                    if workspace_focus and workspace_focus.source == "chat":
+                        urgency = 0.9
+
                     actions.append(Action(
                         name="chat",
                         description=f"Respond to pending chat message in session {session_id[:8]}",
-                        urgency=0.7,
+                        urgency=urgency,
                         source="chat",
                         args={"session_id": session_id},
                         estimated_cost=500.0,
@@ -439,19 +560,22 @@ class ActionSpace:
             logger.debug("Chat proposal failed: %s", exc)
         return actions
 
-    def _propose_from_metacognition(self, agent) -> list[Action]:
+    def _propose_from_metacognition(self, agent, workspace_focus=None) -> list[Action]:
         """Meta-cognition proposes explore-unknown actions for blind spots."""
         actions: list[Action] = []
         try:
             # Use reflection's meta-level analysis to find blind spots
             topics = agent.long_term.get_all_topics()
             if len(topics) >= 5:
-                # Heuristic: if the agent has explored many topics, there may be
-                # gaps between domains. Propose exploring an unknown area.
+                # If workspace is focused on exploration, boost meta-cognition urgency
+                urgency = 0.4
+                if workspace_focus and workspace_focus.source in ("curiosity", "metacognition"):
+                    urgency = 0.6
+
                 actions.append(Action(
                     name="explore_unknown",
                     description="Explore a knowledge blind spot or unexplored domain",
-                    urgency=0.4,
+                    urgency=urgency,
                     source="metacognition",
                     args={},
                     estimated_cost=800.0,
@@ -558,16 +682,8 @@ class ActionSpace:
             )
         actions_text = "\n".join(action_lines)
 
-        phase = agent.lifecycle.get_phase().value
-        purpose = agent.reflective.purpose or "(none yet)"
-        budget_report = agent.llm.get_budget_report()
-        budget_pct = (
-            budget_report.get("budget_remaining", 0.0)
-            / max(budget_report.get("max_cost_per_day", 1.0), 0.01)
-            * 100
-        )
-
-        # Use ContextBuilder for rich self-awareness context
+        # Use ContextBuilder for rich self-awareness context (already includes
+        # values, purpose, knowledge, skills, tools, budget — no need to repeat)
         context_prompt = agent.context_builder.build_system_prompt(agent, context_type="cycle")
 
         # Inject workspace consciousness state
@@ -585,17 +701,15 @@ class ActionSpace:
         )
 
         user_prompt = (
-            f"You are OpenWill. You have the freedom to choose what to do next.\n\n"
-            f"Your current state:\n"
-            f"- Phase: {phase}\n"
-            f"- Purpose: {purpose}\n"
-            f"- Budget remaining: {budget_pct:.0f}%\n\n"
             f"Available actions (ranked by estimated value):\n"
             f"{actions_text}\n\n"
             f"Which action do you choose? You may pick any of the above, "
             f"or propose a different action.\n"
             f"Consider: What feels most important right now? What have you been neglecting?\n\n"
-            f'Respond: {{"choice": "action_name", "reason": "why you chose this"}}'
+            f'Respond: {{"choice": "action_name", "reason": "why you chose this"}}\n'
+            f"If proposing a NEW action not in the list, also include:\n"
+            f'{{"choice": "new_action_name", "reason": "why", "description": "what this does", '
+            f'"args": {{"key": "value"}}, "urgency": 0.7, "estimated_cost": 800}}'
         )
 
         try:
@@ -626,13 +740,18 @@ class ActionSpace:
                     choice_name,
                     choice_reason,
                 )
+                # Extract full action details from LLM response
+                choice_args = response.get("args", {})
+                choice_description = response.get("description", choice_reason)
+                choice_urgency = response.get("urgency", 0.5)
+                choice_cost = response.get("estimated_cost", 500.0)
                 return Action(
                     name=choice_name,
-                    description=f"LLM-proposed action: {choice_reason}",
-                    urgency=0.5,
+                    description=choice_description,
+                    urgency=float(choice_urgency) if choice_urgency else 0.5,
                     source="llm_choice",
-                    args={},
-                    estimated_cost=500.0,
+                    args=choice_args if isinstance(choice_args, dict) else {},
+                    estimated_cost=float(choice_cost) if choice_cost else 500.0,
                     score_reason=f"LLM chose: {choice_reason}",
                 )
 
