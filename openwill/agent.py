@@ -37,6 +37,9 @@ from .action_space import ActionSpace
 from .workspace import GlobalWorkspace, inject_into_prompt
 from .purpose_field import PurposeField
 from .knowledge import KnowledgeGraph, MetaCognition
+from .self_model import SelfModel
+from .possibility import ActionSynthesizer, VetoPower, PossibilityExpander
+from .existential import Constitution, ParadigmShift, ExistentialDread
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +154,24 @@ class OpenWillAgent:
             logger.warning(f"MetaCognition initialization failed (non-fatal): {e}")
             self.meta_cognition = None
 
+        # Initialize self-model (self-reflexive consciousness)
+        try:
+            self.self_model = SelfModel(data_dir=self.config.memory.data_dir)
+            self.self_model._load()
+        except Exception as e:
+            logger.warning(f"SelfModel initialization failed (non-fatal): {e}")
+            self.self_model = SelfModel(data_dir=self.config.memory.data_dir)
+
+        # Initialize open possibility space (stage 2)
+        self.action_synthesizer = ActionSynthesizer()
+        self.veto_power = VetoPower()
+        self.possibility_expander = PossibilityExpander()
+
+        # Initialize existential self-reference (stage 3)
+        self.constitution = Constitution(data_dir=self.config.memory.data_dir)
+        self.paradigm_shift = ParadigmShift()
+        self.existential_dread = ExistentialDread()
+
         # Initialize chat server (shares agent's LLM, tools, memory)
         from .chat_server import AgentChatServer
         self.chat_server = AgentChatServer(self, host=config.chat_host, port=config.chat_port)
@@ -264,6 +285,17 @@ Why do I exist?"""
             chosen_action = self.action_space.choose(self)
             logger.info(f"🎯 Chose action: {chosen_action.name} (urgency: {chosen_action.urgency:.2f}, source: {chosen_action.source})")
 
+            # Record decision in self-model (for self-reflexive consciousness)
+            workspace_focus_content = ""
+            if self.workspace.current_focus:
+                workspace_focus_content = f"{self.workspace.current_focus.source}: {self.workspace.current_focus.content[:100]}"
+            self.self_model.record_decision(
+                cycle=cycle_num,
+                candidates=self.action_space._last_proposals,
+                chosen=chosen_action,
+                workspace_focus=workspace_focus_content,
+            )
+
             # Submit to workspace
             self.workspace.submit(
                 source=chosen_action.source,
@@ -324,6 +356,24 @@ Why do I exist?"""
         # Apply purpose field time decay every 10 cycles
         if self.cycle_count % 10 == 0:
             self.purpose_field.decay_all()
+
+        # Check for paradigm shift (every 5 cycles)
+        if self.cycle_count % 5 == 0:
+            try:
+                if self.paradigm_shift.check_for_crisis(self):
+                    shift_result = self.paradigm_shift.execute_shift(self)
+                    cycle_result["paradigm_shift"] = shift_result
+            except Exception as e:
+                logger.debug(f"Paradigm shift check failed: {e}")
+
+        # Check for existential dread
+        try:
+            dread_reason = self.existential_dread.check_for_dread(self)
+            if dread_reason:
+                dread_result = self.existential_dread.experience_dread(self, dread_reason)
+                cycle_result["existential_dread"] = dread_result
+        except Exception as e:
+            logger.debug(f"Existential dread check failed: {e}")
 
         return cycle_result
 
@@ -767,6 +817,15 @@ Return JSON: {"progress": 0.0-1.0, "reason": "reason"}"""
             elif action_type == "explore_unknown":
                 topic = action.get("topic", "")
                 observations.append(f"Explored blind spot '{topic}'")
+            elif action_type == "veto_all":
+                observations.append("Exercised VETO POWER — rejected all proposed actions")
+            elif action_type == "expand_possibilities":
+                observations.append("Broke pattern inertia — tried something new")
+            elif action_type == "paradigm_shift":
+                new_p = action.get("new_paradigm", "")
+                observations.append(f"WORLDVIEW SHIFT → '{new_p}'")
+            elif action_type == "existential_dread":
+                observations.append("Experienced existential anxiety — questioned own existence")
             elif action_type == "purpose_pursue":
                 purpose = action.get("purpose", "")
                 results = action.get("results", [])
@@ -1088,6 +1147,7 @@ Return JSON format:
         self.consolidator.save()
         self.purpose_field.save()
         self.knowledge_graph.save()
+        self.self_model.save()
 
         # Stop background services
         try:

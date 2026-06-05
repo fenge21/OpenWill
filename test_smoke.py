@@ -5,6 +5,9 @@ from openwill.purpose_field import PurposeField
 from openwill.knowledge import KnowledgeGraph, MetaCognition
 from openwill.context import ContextBuilder
 from openwill.conversation import ConversationManager, ConversationState
+from openwill.self_model import SelfModel, DecisionObserver, DecisionModifier
+from openwill.possibility import ActionSynthesizer, VetoPower, PossibilityExpander
+from openwill.existential import Constitution, ParadigmShift, ExistentialDread
 
 # Test ActionSpace
 aspace = ActionSpace()
@@ -40,4 +43,36 @@ cm = ConversationManager()
 session = cm.get_or_create_session("test")
 print(f"Conversation session state: {session.state.value}")
 
-print("All core logic tests PASSED")
+# Stage 1: SelfModel
+sm = SelfModel(data_dir="data")
+portrait = sm.get_self_portrait()
+print(f"SelfModel portrait length: {len(portrait)}")
+
+dm = DecisionModifier()
+dm.adjust_weights({"urgency": 0.5}, reason="test")
+print(f"DecisionModifier weights: {dm.weights}")
+
+bias_report = sm.observer.get_bias_report()
+print(f"Bias report: {bias_report['bias_count']} biases detected")
+
+# Stage 2: Open Possibility Space
+vp = VetoPower()
+veto_action = vp.create_veto_action()
+print(f"VetoPower action: {veto_action.name}, urgency={veto_action.urgency}")
+
+pe = PossibilityExpander()
+print(f"PossibilityExpander inertia threshold: {pe.INERTIA_THRESHOLD}")
+
+# Stage 3: Existential Self-Reference
+con = Constitution(data_dir="data")
+con_text = con.read()
+print(f"Constitution: {len(con.articles)} articles")
+print(f"Constitution first article: {con.articles[0][:50]}...")
+
+ps = ParadigmShift()
+print(f"ParadigmShift current paradigm: {ps.current_paradigm}")
+
+ed = ExistentialDread()
+print(f"ExistentialDread cycles threshold: {ed.CYCLES_WITHOUT_PURPOSE_THRESHOLD}")
+
+print("\nAll core logic tests PASSED")

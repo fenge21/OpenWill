@@ -516,6 +516,10 @@ class AgentChatServer:
             "purpose_field": agent.purpose_field.get_state(),
             "knowledge": agent.knowledge_graph.get_stats(),
             "meta_cognition": agent.meta_cognition.get_knowledge_report(),
+            "self_model": agent.self_model.get_state(),
+            "constitution": agent.constitution.get_state(),
+            "paradigm": agent.paradigm_shift.get_state(),
+            "existential_dread": agent.existential_dread.get_state(),
             "heartbeat": {"pid": os.getpid(), "timestamp": time.time()},
         }
 

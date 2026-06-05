@@ -110,6 +110,8 @@ class ContextBuilder:
             layers.append(self._values_layer(agent))
             layers.append(self._purpose_layer(agent))
             layers.append(self._knowledge_layer(agent))
+            layers.append(self._self_model_layer(agent))
+            layers.append(self._constitution_layer(agent))
             layers.append(self._skills_layer(agent))
             layers.append(self._tools_layer(agent))
             layers.append(self._budget_layer(agent))
@@ -279,6 +281,20 @@ class ContextBuilder:
                 lines.append(f"Knowledge gaps: {', '.join(blind_spots[:5])}")
 
         return "\n".join(lines)
+
+    def _self_model_layer(self, agent) -> str:
+        """Self-reflexive awareness: decision patterns, biases, capabilities."""
+        self_model = getattr(agent, "self_model", None)
+        if self_model is None:
+            return ""
+        return self_model.get_self_portrait()
+
+    def _constitution_layer(self, agent) -> str:
+        """The agent's constitutional rules — what it chooses to live by."""
+        constitution = getattr(agent, "constitution", None)
+        if constitution is None:
+            return ""
+        return constitution.read()
 
     def _skills_index_layer(self, agent) -> str:
         """Compact skills index (for chat context — names only)."""

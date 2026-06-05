@@ -43,6 +43,9 @@ class ActionSpace:
     Modules propose; the LLM disposes.
     """
 
+    def __init__(self):
+        self._last_proposals: list[Action] = []  # Saved for SelfModel recording
+
     MAX_RECENT_ACTIONS = 20
 
     def __init__(self):
@@ -64,29 +67,58 @@ class ActionSpace:
         # Read current workspace broadcast so modules can react to it
         workspace_focus = agent.workspace.broadcast()
 
+        # Read enabled sources from self-model's DecisionModifier
+        try:
+            enabled_sources = agent.self_model.modifier.enabled_sources
+        except (AttributeError, KeyError):
+            enabled_sources = None
+
         # Curiosity → explore
-        proposals.extend(self._propose_from_curiosity(agent, workspace_focus))
+        if enabled_sources is None or enabled_sources.get("curiosity", True):
+            proposals.extend(self._propose_from_curiosity(agent, workspace_focus))
 
         # Reflection → reflect / contemplate
-        proposals.extend(self._propose_from_reflection(agent, workspace_focus))
+        if enabled_sources is None or enabled_sources.get("reflection", True):
+            proposals.extend(self._propose_from_reflection(agent, workspace_focus))
 
         # Purpose → execute (if a purpose is active)
-        proposals.extend(self._propose_from_purpose(agent, workspace_focus))
+        if enabled_sources is None or enabled_sources.get("purpose", True):
+            proposals.extend(self._propose_from_purpose(agent, workspace_focus))
 
         # Budget → rest (if budget is running low)
-        proposals.extend(self._propose_from_budget(agent, workspace_focus))
+        if enabled_sources is None or enabled_sources.get("budget", True):
+            proposals.extend(self._propose_from_budget(agent, workspace_focus))
 
         # Identity → self-examination (periodically)
-        proposals.extend(self._propose_from_identity(agent, workspace_focus))
+        if enabled_sources is None or enabled_sources.get("identity", True):
+            proposals.extend(self._propose_from_identity(agent, workspace_focus))
 
         # Consolidator → skill-practice (if skills exist)
-        proposals.extend(self._propose_from_consolidator(agent, workspace_focus))
+        if enabled_sources is None or enabled_sources.get("consolidator", True):
+            proposals.extend(self._propose_from_consolidator(agent, workspace_focus))
 
         # Chat → respond (if there are pending chat messages)
-        proposals.extend(self._propose_from_chat(agent, workspace_focus))
+        if enabled_sources is None or enabled_sources.get("chat", True):
+            proposals.extend(self._propose_from_chat(agent, workspace_focus))
 
         # Meta-cognition → explore-unknown (for blind spots)
-        proposals.extend(self._propose_from_metacognition(agent, workspace_focus))
+        if enabled_sources is None or enabled_sources.get("metacognition", True):
+            proposals.extend(self._propose_from_metacognition(agent, workspace_focus))
+
+        # VetoPower → reject all (if conditions warrant)
+        try:
+            if agent.veto_power.should_offer_veto(agent, proposals):
+                proposals.append(agent.veto_power.create_veto_action())
+        except Exception:
+            pass
+
+        # PossibilityExpander → break inertia (if detected)
+        try:
+            inertia = agent.possibility_expander.detect_inertia(agent)
+            if inertia:
+                proposals.append(agent.possibility_expander.create_expansion_action(inertia))
+        except Exception:
+            pass
 
         logger.debug(
             "ActionSpace collected %d proposals from %d sources",
@@ -105,13 +137,21 @@ class ActionSpace:
         extremely urgent action (e.g. safety response) still scores high even
         if it doesn't align with current values.
 
+        Weights are read from the agent's SelfModel.DecisionModifier, so the
+        agent can adjust its own decision-making process over time.
+
         Actions are returned sorted descending by score.
         """
-        # Weights: urgency is most important, then value alignment, novelty, cost
-        W_URGENCY = 0.40
-        W_VALUE = 0.25
-        W_NOVELTY = 0.20
-        W_COST = 0.15
+        # Read weights from agent's self-model (modifiable at runtime)
+        try:
+            weights = agent.self_model.modifier.weights
+        except (AttributeError, KeyError):
+            weights = {"urgency": 0.40, "value_alignment": 0.25, "novelty": 0.20, "cost_efficiency": 0.15}
+
+        W_URGENCY = weights.get("urgency", 0.40)
+        W_VALUE = weights.get("value_alignment", 0.25)
+        W_NOVELTY = weights.get("novelty", 0.20)
+        W_COST = weights.get("cost_efficiency", 0.15)
 
         for action in actions:
             urgency = max(0.0, min(1.0, action.urgency))
@@ -145,6 +185,7 @@ class ActionSpace:
         not the code.
         """
         proposals = self.propose_actions(agent)
+        self._last_proposals = proposals  # Save for SelfModel recording
         if not proposals:
             # Fallback: always possible to rest
             return Action(
@@ -324,6 +365,24 @@ class ActionSpace:
                 return {"type": "purpose_pursue", "success": False, "error": "No purpose defined"}
             results = agent._act_purposed()
             return {"type": "purpose_pursue", "purpose": purpose, "results": results}
+
+        if name == "veto_all":
+            # Agent rejects all proposed actions — deep self-examination
+            reason = action.description
+            return agent.veto_power.execute_veto(agent, reason=reason)
+
+        if name == "expand_possibilities":
+            # Break inertia by trying something different
+            inertia_info = action.args.get("inertia_info", {})
+            suggestion = inertia_info.get("suggestion", "try something new")
+            # Use ActionSynthesizer to create a novel action
+            synthesized = agent.action_synthesizer.synthesize(
+                intent=suggestion, agent=agent,
+            )
+            if synthesized:
+                result = agent.action_synthesizer.execute_synthesized(agent, synthesized)
+                return {"type": "expand_possibilities", "synthesized": synthesized.to_dict(), "result": result}
+            return {"type": "expand_possibilities", "success": False, "note": "Could not synthesize new action"}
 
         # Unknown action name — attempt generic LLM-driven execution
         logger.warning("Unknown action name: %s, attempting generic execution", name)
