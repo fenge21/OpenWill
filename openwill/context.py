@@ -109,6 +109,7 @@ class ContextBuilder:
         if context_type == "cycle":
             layers.append(self._values_layer(agent))
             layers.append(self._purpose_layer(agent))
+            layers.append(self._knowledge_layer(agent))
             layers.append(self._skills_layer(agent))
             layers.append(self._tools_layer(agent))
             layers.append(self._budget_layer(agent))
@@ -216,17 +217,31 @@ class ContextBuilder:
         return "\n".join(lines)
 
     def _purpose_layer(self, agent) -> str:
-        """Current purpose and confidence."""
+        """Current purpose and confidence, enriched with PurposeField state."""
         reflective = getattr(agent, "reflective", None)
-        if reflective is None:
-            return ""
+        purpose_field = getattr(agent, "purpose_field", None)
 
-        purpose = getattr(reflective, "purpose", None)
-        confidence = getattr(reflective, "purpose_confidence", 0.0)
+        lines = ["[My purpose]"]
 
-        if purpose:
-            return f"[My purpose]\n{purpose} (confidence: {confidence:.0%})"
-        return "[My purpose]\nI am still searching for my purpose..."
+        # Primary purpose from reflective memory
+        if reflective is not None:
+            purpose = getattr(reflective, "purpose", None)
+            confidence = getattr(reflective, "purpose_confidence", 0.0)
+            if purpose:
+                lines.append(f"Current: {purpose} (confidence: {confidence:.0%})")
+            else:
+                lines.append("I am still searching for my purpose...")
+
+        # Purpose field potentials (quantum superposition)
+        if purpose_field is not None:
+            potentials = getattr(purpose_field, "potentials", [])
+            if potentials:
+                top_3 = sorted(potentials, key=lambda p: p.strength, reverse=True)[:3]
+                lines.append("Purpose potentials:")
+                for p in top_3:
+                    lines.append(f"  - {p.purpose[:80]} (strength: {p.strength:.0%}, origin: {p.origin})")
+
+        return "\n".join(lines)
 
     def _skills_layer(self, agent) -> str:
         """Full skills description (for cycle context)."""
@@ -239,6 +254,31 @@ class ContextBuilder:
             return "[Skills]\n(no skills yet)"
 
         return f"[Skills]\n{desc}"
+
+    def _knowledge_layer(self, agent) -> str:
+        """Knowledge graph summary and meta-cognitive awareness."""
+        knowledge_graph = getattr(agent, "knowledge_graph", None)
+        meta_cognition = getattr(agent, "meta_cognition", None)
+
+        lines = ["[Knowledge]"]
+
+        if knowledge_graph is not None:
+            stats = knowledge_graph.get_stats()
+            total_nodes = stats.get("total_nodes", 0)
+            total_edges = stats.get("total_edges", 0)
+            lines.append(f"Concepts known: {total_nodes} | Relations: {total_edges}")
+
+            top_concepts = stats.get("top_central_concepts", [])[:5]
+            if top_concepts:
+                concept_names = [c["concept"] for c in top_concepts]
+                lines.append(f"Core concepts: {', '.join(concept_names)}")
+
+        if meta_cognition is not None:
+            blind_spots = meta_cognition.identify_blind_spots()
+            if blind_spots:
+                lines.append(f"Knowledge gaps: {', '.join(blind_spots[:5])}")
+
+        return "\n".join(lines)
 
     def _skills_index_layer(self, agent) -> str:
         """Compact skills index (for chat context — names only)."""

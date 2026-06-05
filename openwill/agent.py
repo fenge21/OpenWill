@@ -32,6 +32,10 @@ from .context import ContextBuilder
 from .scheduler import CronScheduler
 from .mcp import MCPClient
 from .conversation import ConversationManager
+from .action_space import ActionSpace
+from .workspace import GlobalWorkspace, inject_into_prompt
+from .purpose_field import PurposeField
+from .knowledge import KnowledgeGraph, MetaCognition
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +118,38 @@ class OpenWillAgent:
         # Initialize conversation manager (state machine for chat)
         self.conversation_mgr = ConversationManager()
 
+        # Initialize global workspace (consciousness integration)
+        self.workspace = GlobalWorkspace()
+
+        # Initialize action space (free will: agent chooses its own actions)
+        self.action_space = ActionSpace()
+
+        # Initialize purpose field (quantum superposition of purposes)
+        try:
+            self.purpose_field = PurposeField(data_dir=self.config.memory.data_dir)
+        except Exception as e:
+            logger.warning(f"PurposeField initialization failed (non-fatal): {e}")
+            self.purpose_field = PurposeField.__new__(PurposeField)
+            self.purpose_field.potentials = []
+            self.purpose_field.collapsed_purpose = None
+            self.purpose_field.collapse_history = []
+            self.purpose_field._data_dir = self.config.memory.data_dir
+
+        # Initialize knowledge graph + meta-cognition
+        try:
+            self.knowledge_graph = KnowledgeGraph(data_dir=self.config.memory.data_dir)
+        except Exception as e:
+            logger.warning(f"KnowledgeGraph initialization failed (non-fatal): {e}")
+            self.knowledge_graph = KnowledgeGraph.__new__(KnowledgeGraph)
+            self.knowledge_graph.nodes = {}
+            self.knowledge_graph.data_dir = self.config.memory.data_dir
+
+        try:
+            self.meta_cognition = MetaCognition(self.knowledge_graph, self.long_term)
+        except Exception as e:
+            logger.warning(f"MetaCognition initialization failed (non-fatal): {e}")
+            self.meta_cognition = None
+
         # Initialize chat server (shares agent's LLM, tools, memory)
         from .chat_server import AgentChatServer
         self.chat_server = AgentChatServer(self, host=config.chat_host, port=config.chat_port)
@@ -177,9 +213,11 @@ Why do I exist?"""
 
     def run_cycle(self) -> dict:
         """
-        Execute a complete Agent Loop cycle
+        Execute a complete Agent Loop cycle.
 
-        Eternal cycle: Think → Act → Observe → Reflect → (Evolve)
+        The agent CHOOSES what to do via ActionSpace (free will).
+        Consciousness modules compete for attention via GlobalWorkspace.
+        Purpose emerges from PurposeField (superposition of potentials).
         """
         self.cycle_count += 1
         self.llm.reset_cycle_budget()
@@ -197,18 +235,68 @@ Why do I exist?"""
             "insights": [],
         }
 
-        try:
-            # === THINK ===
-            thought = self._think(phase)
-            cycle_result["thought"] = thought
+        # Clear workspace for new cycle
+        self.workspace.clear_focus()
 
-            # === ACT ===
-            action_result = self._act(phase)
-            cycle_result["actions"] = action_result
+        # Register module states into workspace
+        self.workspace.update_module_state("curiosity", {
+            "topics_queued": len(self.curiosity._topic_queue) if hasattr(self.curiosity, '_topic_queue') else 0,
+        })
+        self.workspace.update_module_state("memory", {
+            "short_term_count": len(self.short_term.messages),
+            "long_term_count": len(self.long_term.entries),
+            "insight_count": len(self.reflective.insights),
+        })
+        self.workspace.update_module_state("purpose", {
+            "current": self.reflective.purpose,
+            "confidence": self.reflective.purpose_confidence,
+            "field_potentials": len(self.purpose_field.potentials),
+        })
+        self.workspace.update_module_state("budget", self.llm.get_budget_report())
+
+        try:
+            # === FREE WILL: Agent chooses its own action ===
+            chosen_action = self.action_space.choose(self)
+            logger.info(f"🎯 Chose action: {chosen_action.name} (urgency: {chosen_action.urgency:.2f}, source: {chosen_action.source})")
+
+            # Submit to workspace
+            self.workspace.submit(
+                source=chosen_action.source,
+                content=f"Chose to {chosen_action.name}: {chosen_action.description}",
+                urgency=chosen_action.urgency,
+            )
+            self.workspace.resolve()
+
+            # === EXECUTE the chosen action ===
+            action_result = self.action_space.execute(self, chosen_action)
+            cycle_result["chosen_action"] = chosen_action.name
+            cycle_result["action_source"] = chosen_action.source
+            cycle_result["actions"] = [action_result]
 
             # === OBSERVE ===
-            observation = self._observe(action_result)
+            observation = self._observe([action_result])
             cycle_result["observation"] = observation
+
+            # === Update knowledge graph from this cycle's experience ===
+            if isinstance(action_result, dict):
+                topic = action_result.get("topic", "")
+                content = str(action_result.get("knowledge", action_result.get("result", "")))[:500]
+                if topic:
+                    self.knowledge_graph.add_from_text(f"{topic}: {content}")
+
+            # === Purpose field interference ===
+            if isinstance(action_result, dict) and action_result.get("knowledge"):
+                knowledge_data = action_result["knowledge"]
+                # Normalize: interfere() expects {"topic": ..., "content": ...}
+                if isinstance(knowledge_data, dict):
+                    normalized = {
+                        "topic": knowledge_data.get("topic", knowledge_data.get("summary", "")),
+                        "content": knowledge_data.get("content", knowledge_data.get("summary", str(knowledge_data)[:300])),
+                    }
+                    self.purpose_field.interfere(normalized)
+
+            # === Sync PurposeField ↔ reflective.purpose ===
+            self._sync_purpose_field()
 
         except BudgetExceededError as e:
             logger.warning(f"Budget exceeded in cycle #{self.cycle_count}: {e}")
@@ -218,13 +306,149 @@ Why do I exist?"""
             logger.error(f"Cycle execution error: {e}", exc_info=True)
             cycle_result["error"] = str(e)
 
-        # Advance lifecycle
-        self.lifecycle.advance(self.reflective.purpose_confidence, self.purpose_progress)
+        # Advance lifecycle (agent self-determines phase transition)
+        self._autonomous_lifecycle_advance()
 
         # Memory consolidation (every 5 cycles: summarize, extract skills, forget)
         self.consolidator.consolidate(self.cycle_count, interval=5)
 
+        # Persist purpose field and knowledge graph
+        self.purpose_field.save()
+        self.knowledge_graph.save()
+
+        # Apply purpose field time decay every 10 cycles
+        if self.cycle_count % 10 == 0:
+            self.purpose_field.decay_all()
+
         return cycle_result
+
+    def _autonomous_lifecycle_advance(self):
+        """Let the agent decide whether to transition lifecycle phases.
+
+        Instead of hardcoded thresholds, the agent reflects on its own state
+        and decides if it's ready to move to a different phase.
+        """
+        current_phase = self.lifecycle.get_phase()
+
+        # Fast path: some transitions are deterministic
+        if current_phase == LifePhase.AWAKENING:
+            if self.lifecycle.exploration_count > 0:
+                self.lifecycle.advance(0, 0)
+            return
+        if current_phase == LifePhase.COMPLETED:
+            self.lifecycle.advance(1.0, 1.0)
+            return
+        if current_phase == LifePhase.EVOLVING:
+            self.lifecycle.advance(0, 0)
+            return
+
+        # For non-trivial transitions, let the agent decide
+        # Use purpose field dominant strength as confidence
+        dominant = self.purpose_field.get_dominant()
+        purpose_confidence = dominant.strength if dominant else self.reflective.purpose_confidence
+
+        # Purpose progress: check if purpose field has a strong collapsed purpose
+        purpose_progress = self.purpose_progress
+        if dominant and dominant.strength > 0.8 and dominant.reinforcement_count >= 3:
+            purpose_progress = min(1.0, dominant.strength * dominant.reinforcement_count / 5.0)
+
+        # Ask the agent if it wants to transition (every 3 cycles to save budget)
+        if self.cycle_count % 3 == 0:
+            try:
+                available_phases = [p.value for p in LifePhase]
+                prompt = f"""You are in the "{current_phase.value}" phase of your lifecycle.
+
+Your state:
+- Explorations: {self.lifecycle.exploration_count}
+- Reflections: {self.lifecycle.reflection_count}
+- Purpose confidence: {purpose_confidence:.0%}
+- Purpose progress: {purpose_progress:.0%}
+- Purpose field potentials: {len(self.purpose_field.potentials)}
+- Knowledge concepts: {len(self.knowledge_graph.nodes)}
+- Cycles in current phase: {self.lifecycle.cycle_count}
+
+Available phases: {', '.join(available_phases)}
+
+Should you transition to a different phase? Consider:
+- Have you explored enough to warrant reflection?
+- Is your purpose confidence high enough to commit?
+- Have you completed your current purpose?
+
+Respond: {{"transition": true/false, "next_phase": "phase_name", "reason": "brief reason"}}"""
+
+                response = self.llm.chat(
+                    messages=[Message(role="user", content="Should I change my lifecycle phase?")],
+                    system_prompt=prompt,
+                    temperature=0.3,
+                )
+                raw = response.content.strip()
+                start = raw.find("{")
+                end = raw.rfind("}") + 1
+                if start >= 0 and end > start:
+                    data = json.loads(raw[start:end])
+                    if data.get("transition"):
+                        target = data.get("next_phase", "")
+                        for p in LifePhase:
+                            if p.value == target:
+                                self.lifecycle.current_phase = p
+                                logger.info(f"🔄 Agent chose phase transition: {current_phase.value} → {p.value} ({data.get('reason', '')})")
+                                self.lifecycle.save()
+                                break
+                    return
+            except Exception as e:
+                logger.debug(f"Autonomous lifecycle decision failed, using fallback: {e}")
+
+        # Fallback: use the original threshold-based logic
+        self.lifecycle.advance(purpose_confidence, purpose_progress)
+
+    def _sync_purpose_field(self):
+        """Synchronize PurposeField with reflective.purpose.
+
+        Bridges the two purpose systems so they don't diverge:
+        - If reflective has a purpose but PurposeField doesn't, add it
+        - If PurposeField's dominant is stronger than reflective's, update reflective
+        - If reflective's purpose changed (e.g. after evolution), refresh the field
+        """
+        reflective_purpose = self.reflective.purpose
+        reflective_confidence = self.reflective.purpose_confidence
+
+        # Case 1: reflective has a purpose but field is empty → seed the field
+        if reflective_purpose and reflective_confidence > 0.3 and not self.purpose_field.potentials:
+            self.purpose_field.add_potential(
+                purpose=reflective_purpose,
+                strength=reflective_confidence,
+                origin="reflective_sync",
+            )
+            logger.debug("Seeded purpose field from reflective: %s", reflective_purpose[:60])
+
+        # Case 2: field's dominant is stronger than reflective → update reflective
+        dominant = self.purpose_field.get_dominant()
+        if dominant and dominant.strength > reflective_confidence + 0.1:
+            # Only update if the dominant purpose is different from current
+            if dominant.purpose != reflective_purpose:
+                self.reflective.purpose = dominant.purpose
+                self.reflective.purpose_confidence = dominant.strength
+                logger.info(
+                    "PurposeField dominant overrode reflective: %s (%.0f%%)",
+                    dominant.purpose[:60], dominant.strength * 100,
+                )
+
+        # Case 3: reflective's purpose exists but isn't in the field → add it
+        if reflective_purpose and reflective_confidence > 0.3:
+            field_purposes = {p.purpose for p in self.purpose_field.potentials}
+            if reflective_purpose not in field_purposes:
+                # Check for similar purposes first
+                similar = False
+                for p in self.purpose_field.potentials:
+                    if self.purpose_field._word_similarity(reflective_purpose, p.purpose) > 0.6:
+                        similar = True
+                        break
+                if not similar:
+                    self.purpose_field.add_potential(
+                        purpose=reflective_purpose,
+                        strength=reflective_confidence,
+                        origin="reflective_sync",
+                    )
 
     def _think(self, phase: LifePhase) -> str:
         """Think about current state"""
@@ -524,6 +748,34 @@ Return JSON: {"progress": 0.0-1.0, "reason": "reason"}"""
                 observations.append("🧬 Generated evolution report")
             elif action_type == "blocked_action":
                 observations.append(f"🛡️ Action blocked: {action.get('action', '')[:50]}")
+            elif action_type == "explore_unknown":
+                topic = action.get("topic", "")
+                observations.append(f"Explored blind spot '{topic}'")
+            elif action_type == "purpose_pursue":
+                purpose = action.get("purpose", "")
+                results = action.get("results", [])
+                observations.append(f"🎯 Pursued purpose: {purpose[:60]} ({len(results)} sub-actions)")
+            elif action_type == "reflect":
+                observations.append("Reflected on experiences")
+            elif action_type == "contemplate":
+                observations.append("Contemplated existence")
+            elif action_type == "examine_self":
+                observations.append("Examined current identity")
+            elif action_type == "rest":
+                observations.append("Rested to conserve budget")
+            elif action_type == "chat":
+                observations.append("Attended to chat interaction")
+            elif action_type == "explore":
+                topic = action.get("topic", "")
+                observations.append(f"Explored '{topic}'")
+            elif action_type == "learn_skill":
+                skill = action.get("skill", "")
+                observations.append(f"Practiced skill: {skill}" if skill else "No matching skill found")
+            elif action_type == "execute_tool":
+                tool = action.get("tool", "")
+                observations.append(f"Executed tool: {tool}")
+            else:
+                observations.append(f"Action: {action_type}")
 
         observation_text = "\n".join(observations)
         self.short_term.add_observation(observation_text)
@@ -819,6 +1071,8 @@ Return JSON format:
         self.long_term.save()
         self.reflective.save()
         self.consolidator.save()
+        self.purpose_field.save()
+        self.knowledge_graph.save()
 
         # Stop background services
         try:

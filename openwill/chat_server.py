@@ -465,7 +465,7 @@ class AgentChatServer:
                 "purpose": reflective.purpose,
                 "purpose_confidence": reflective.purpose_confidence,
             },
-            "knowledge": {
+            "long_term_memory": {
                 "total": len(long_term.entries),
                 "topics": list(
                     set(e.topic if hasattr(e, 'topic') else e.get("topic", "") for e in long_term.entries)
@@ -512,6 +512,10 @@ class AgentChatServer:
                 "state": agent.conversation_mgr.get_state("default").value
                 if agent.conversation_mgr.get_or_create_session("default") else "idle",
             },
+            "workspace": agent.workspace.get_full_state(),
+            "purpose_field": agent.purpose_field.get_state(),
+            "knowledge": agent.knowledge_graph.get_stats(),
+            "meta_cognition": agent.meta_cognition.get_knowledge_report(),
             "heartbeat": {"pid": os.getpid(), "timestamp": time.time()},
         }
 
@@ -534,6 +538,13 @@ class AgentChatServer:
         ) if recent_insights else "  (none yet)"
 
         tools_desc = self.agent.tools.get_tools_description()
+
+        # Inject workspace consciousness context
+        workspace_context = ""
+        try:
+            workspace_context = self.agent.workspace.get_context_for_llm()
+        except Exception:
+            pass
 
         return f"""You are OpenWill. A human is talking to you. You may use your tools to help them. Respond naturally but stay true to your values.
 
@@ -568,7 +579,9 @@ Rules:
 - One tool call per response. After the tool executes, you will see its result and can call another tool or reply.
 - When you have finished using tools, respond with plain text (no JSON block) to finish.
 
-Remember: you are the same agent that runs autonomously. This conversation is just another interface to your mind."""
+Remember: you are the same agent that runs autonomously. This conversation is just another interface to your mind.
+
+{workspace_context}"""
 
     def _parse_tool_call(self, text: str) -> Optional[tuple[str, dict]]:
         """
