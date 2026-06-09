@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/openwill_concept_xyq_01.jpg" alt="OpenWill Concept Art" width="100%">
+<img src="assets/logo.svg" alt="OpenWill Logo" width="30%">
 
 # OpenWill
 

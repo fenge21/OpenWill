@@ -1,0 +1,141 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" width="300" height="300">
+  <defs>
+    <!-- iOS squircle clip - corner radius 22.37% with squircle kappa ~0.6 -->
+    <clipPath id="squircle">
+      <path d="M 67 0 L 233 0 C 273 0, 300 27, 300 67 L 300 233 C 300 273, 273 300, 233 300 L 67 300 C 27 300, 0 273, 0 233 L 0 67 C 0 27, 27 0, 67 0 Z"/>
+    </clipPath>
+
+    <!-- Background gradient - deep purple -->
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="300" y2="300" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0f0524"/>
+      <stop offset="40%" stop-color="#1a0a3e"/>
+      <stop offset="100%" stop-color="#0d0620"/>
+    </linearGradient>
+
+    <!-- Subtle top light for iOS depth -->
+    <linearGradient id="topLight" x1="150" y1="0" x2="150" y2="300" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.06"/>
+      <stop offset="35%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- W gradient - rich purple ascending -->
+    <linearGradient id="wGrad" x1="0" y1="210" x2="0" y2="95" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#3b0764"/>
+      <stop offset="35%" stop-color="#7c3aed"/>
+      <stop offset="70%" stop-color="#a78bfa"/>
+      <stop offset="100%" stop-color="#ddd6fe"/>
+    </linearGradient>
+
+    <!-- Spiral gradient -->
+    <linearGradient id="spiralGrad" x1="0" y1="150" x2="0" y2="40" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#8b5cf6"/>
+      <stop offset="50%" stop-color="#c4b5fd"/>
+      <stop offset="100%" stop-color="#f5f3ff"/>
+    </linearGradient>
+
+    <!-- Inner arc gradient -->
+    <linearGradient id="arcInnerGrad" x1="100" y1="0" x2="200" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#6d28d9" stop-opacity="0.2"/>
+      <stop offset="50%" stop-color="#a78bfa" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#6d28d9" stop-opacity="0.2"/>
+    </linearGradient>
+
+    <!-- Outer arc gradient -->
+    <linearGradient id="arcOuterGrad" x1="88" y1="0" x2="212" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#4c1d95" stop-opacity="0.1"/>
+      <stop offset="50%" stop-color="#8b5cf6" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#4c1d95" stop-opacity="0.1"/>
+    </linearGradient>
+
+    <!-- Apex glow -->
+    <radialGradient id="apexGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="15%" stop-color="#f5f3ff" stop-opacity="0.95"/>
+      <stop offset="40%" stop-color="#c4b5fd" stop-opacity="0.5"/>
+      <stop offset="70%" stop-color="#7c3aed" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#4c1d95" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Background aura -->
+    <radialGradient id="aura" cx="50%" cy="45%" r="32%">
+      <stop offset="0%" stop-color="#2e1065" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#0f0524" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Glow filter for W -->
+    <filter id="glow" x="-15%" y="-15%" width="130%" height="130%">
+      <feGaussianBlur stdDeviation="3.5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Soft glow for spiral -->
+    <filter id="softGlow" x="-25%" y="-10%" width="150%" height="120%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Big glow for apex -->
+    <filter id="bigGlow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Arc glow -->
+    <filter id="arcGlow" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur stdDeviation="2.5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- iOS squircle clipped content -->
+  <g clip-path="url(#squircle)">
+    <!-- Base gradient background -->
+    <rect width="300" height="300" fill="url(#bgGrad)"/>
+
+    <!-- Top light overlay for iOS depth feel -->
+    <rect width="300" height="300" fill="url(#topLight)"/>
+
+    <!-- Background aura -->
+    <ellipse cx="150" cy="140" rx="100" ry="90" fill="url(#aura)"/>
+
+    <!-- Outer open arc -->
+    <path d="M 88 88 A 88 88 0 1 1 212 88"
+          stroke="url(#arcOuterGrad)" stroke-width="1.8" fill="none" stroke-linecap="round" filter="url(#arcGlow)"/>
+
+    <!-- Inner open arc -->
+    <path d="M 100 100 A 72 72 0 1 1 200 100"
+          stroke="url(#arcInnerGrad)" stroke-width="2.2" fill="none" stroke-linecap="round" filter="url(#arcGlow)"/>
+
+    <!-- W shape - main body, vertically centered in icon -->
+    <path d="M 68 112 L 108 208 L 150 145 L 192 208 L 232 112"
+          stroke="url(#wGrad)" stroke-width="6.5" fill="none" filter="url(#glow)"
+          stroke-linecap="round" stroke-linejoin="round"/>
+
+    <!-- Rising spiral - from W center upward to apex -->
+    <path d="M 150 145 C 176 120, 182 90, 158 68 C 134 46, 126 42, 148 32"
+          stroke="url(#spiralGrad)" stroke-width="2.5" fill="none" filter="url(#softGlow)" stroke-linecap="round"/>
+
+    <!-- Spiral energy particles -->
+    <circle cx="170" cy="105" r="1.5" fill="#c4b5fd" opacity="0.5"/>
+    <circle cx="138" cy="56" r="1.2" fill="#ddd6fe" opacity="0.45"/>
+    <circle cx="158" cy="82" r="1" fill="#a78bfa" opacity="0.4"/>
+    <circle cx="136" cy="46" r="0.8" fill="#ede9fe" opacity="0.5"/>
+
+    <!-- Apex node - glowing point at top of spiral -->
+    <circle cx="150" cy="32" r="22" fill="url(#apexGlow)" filter="url(#bigGlow)"/>
+    <circle cx="150" cy="32" r="5" fill="#ffffff" opacity="0.95"/>
+    <circle cx="150" cy="32" r="2.5" fill="#ffffff"/>
+  </g>
+</svg>
